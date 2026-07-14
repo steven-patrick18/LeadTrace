@@ -5,25 +5,26 @@ import { EnrichmentDataProvider, PersonEnrichment } from '../enrichment/enrichme
 import { PersonDataProvider, PersonMatch, PersonSearchQuery } from './provider.interface';
 
 /**
- * Melissa Personator Consumer adapter — identity verify + contact append.
- * Docs: https://docs.melissa.com  · Auth: `id=<licenseKey>` query param.
+ * Melissa Global Phone API adapter — reverse phone → caller-ID identity + geo.
+ * Endpoint: GET https://globalphone.melissadata.net/v4/WEB/GlobalPhone/doGlobalPhone
+ * Auth: `id=<licenseKey>` query param.  Docs: https://docs.melissa.com
  *
- * Personator verifies/appends against a record you already hold (name +
- * address), so it fits ENRICHMENT better than open search. We request the
- * fullest column set (`cols=GrpAll`) with all actions (Check, Verify, Append,
- * Move) to pull the maximum detail per call, and the app caches it — raise this
- * provider's cache TTL to build your base database and cut repeat cost.
+ * Global Phone turns a phone number into the CALLER-ID NAME, carrier, line
+ * type, and the number's city/county/state/ZIP/timezone — a genuine
+ * reverse-phone lookup. That makes Melissa a phone→identity source here:
+ * searching a phone returns the owner, and enrichment fills phone quality +
+ * location.
  *
- * Melissa signals problems in TransmissionResults (e.g. GE05 = license
- * disabled/expired); we surface those as errors so the merge skips Melissa and
- * keeps the other providers (PARTIAL).
+ * Result handling: transmission-level failures (GE05 invalid key, GE08 product
+ * not enabled / no credits) throw so the enrichment merge skips Melissa and
+ * keeps the other providers. Per-record PS result codes indicate validity.
  */
 @Injectable()
 export class MelissaProvider implements PersonDataProvider, EnrichmentDataProvider {
   readonly code = 'MELISSA';
   private readonly logger = new Logger(MelissaProvider.name);
   private readonly base =
-    process.env.MELISSA_BASE_URL || 'https://personator.melissadata.net/v3/WEB/ContactVerify/doContactVerify';
+    process.env.MELISSA_BASE_URL || 'https://globalphone.melissadata.net/v4/WEB/GlobalPhone/doGlobalPhone';
   private readonly region = (process.env.DEFAULT_PHONE_REGION || 'US') as CountryCode;
 
   constructor(private readonly prisma: PrismaService) {}
@@ -34,26 +35,22 @@ export class MelissaProvider implements PersonDataProvider, EnrichmentDataProvid
     return p.apiKey;
   }
 
-  private async call(params: Record<string, string>): Promise<any> {
+  private async lookup(phone: string): Promise<any> {
     const key = await this.apiKey();
-    const qs = new URLSearchParams({
-      id: key,
-      format: 'json',
-      act: 'Check,Verify,Append,Move',
-      cols: 'GrpAll',
-      ...params,
-    });
+    const qs = new URLSearchParams({ id: key, phone, ctry: this.region, format: 'json' });
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20000);
     try {
       const res = await fetch(`${this.base}?${qs}`, { signal: ctrl.signal });
       const json = await res.json().catch(() => ({}));
-      // Transmission-level failures (bad/disabled license, quota) live here.
       const tr = json?.TransmissionResults ?? '';
-      if (tr && tr !== ' ' && !tr.includes('GE00')) {
-        throw new Error(`Melissa transmission ${tr} (e.g. GE05 = license disabled/expired)`);
+      if (tr && tr.trim() && !tr.includes('GE00')) {
+        const hint =
+          tr.includes('GE05') ? 'invalid license key' :
+          tr.includes('GE08') ? 'Global Phone not enabled / no credits on this license' : tr;
+        throw new Error(`Melissa ${tr} (${hint})`);
       }
-      return json;
+      return (json?.Records ?? [])[0] ?? null;
     } finally {
       clearTimeout(timer);
     }
@@ -65,84 +62,92 @@ export class MelissaProvider implements PersonDataProvider, EnrichmentDataProvid
     return p && p.isValid() ? p.number : null;
   }
 
-  private splitName(full: unknown, first?: string, last?: string) {
-    if (first || last) return { first: first ?? '', last: last ?? '' };
-    const s = String(full ?? '').trim();
+  private lineType(t: unknown): 'mobile' | 'landline' | 'voip' | 'unknown' {
+    const s = String(t ?? '').toLowerCase();
+    if (s.includes('mobile') || s.includes('wireless') || s.includes('cell')) return 'mobile';
+    if (s.includes('landline') || s.includes('fixed') || s.includes('land line')) return 'landline';
+    if (s.includes('voip')) return 'voip';
+    return 'unknown';
+  }
+
+  /** Caller ID like "NEIL DORFMAN" → first/last (title-cased). */
+  private splitCaller(caller: unknown): { first: string; last: string } {
+    const s = String(caller ?? '').trim();
     if (!s) return { first: '', last: '' };
-    const parts = s.split(/\s+/);
-    return { first: parts[0], last: parts.slice(1).join(' ') };
+    const tc = (w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    const parts = s.split(/\s+/).map(tc);
+    return { first: parts[0] ?? '', last: parts.slice(1).join(' ') };
   }
 
-  private recordToEnrichment(rec: any, fallbackPhone: string): PersonEnrichment {
-    const phoneNums = [rec?.PhoneNumber, rec?.Phone, rec?.MobilePhone]
-      .map((p) => this.e164(p))
-      .filter(Boolean) as string[];
-    if (fallbackPhone && !phoneNums.includes(fallbackPhone)) phoneNums.unshift(fallbackPhone);
-    const emails = [rec?.EmailAddress, rec?.Email].filter((e) => typeof e === 'string' && e.includes('@'));
-
-    return {
-      aliases: [],
-      addresses: rec?.AddressLine1
-        ? [{ line1: rec.AddressLine1, city: rec.City ?? '', state: rec.State ?? '', zip: rec.PostalCode ?? '', type: 'current' }]
-        : [],
-      phones: phoneNums.map((number, i) => ({
-        number,
-        lineType: 'unknown' as const,
-        carrier: undefined,
-        active: true,
-        spamRisk: 'low' as const,
-        isPrimary: i === 0,
-      })),
-      emails,
-      ageRange: rec?.DemographicsAge ?? rec?.Age ?? null,
-      relatives: [],
-      associates: [],
-      property: { ownership: rec?.DemographicsOwnRent === 'O' ? 'own' : rec?.DemographicsOwnRent === 'R' ? 'rent' : 'unknown' },
-      socialUrls: [], // Melissa returns no social; never fetched
-      // Verified-address / append results raise confidence.
-      providerConfidence: String(rec?.Results ?? '').includes('AS01') ? 0.85 : rec?.AddressLine1 ? 0.7 : 0.4,
-      sourceProvider: this.code,
-    };
+  private callerName(rec: any): unknown {
+    return rec?.Caller ?? rec?.CallerID ?? rec?.CallerId ?? rec?.Name ?? null;
   }
 
-  async enrichPerson(input: { phone: string; firstName: string; lastName: string; zip?: string | null }): Promise<PersonEnrichment> {
-    const json = await this.call({
-      first: input.firstName,
-      last: input.lastName,
-      phone: input.phone.replace(/\D/g, ''),
-      ...(input.zip ? { postal: input.zip } : {}),
-    });
-    const rec = (json?.Records ?? [])[0] ?? {};
-    return this.recordToEnrichment(rec, this.e164(input.phone) ?? input.phone);
+  private isReachable(rec: any): boolean {
+    const results = String(rec?.Results ?? '');
+    // PS01 = valid line; PS08/PS09 etc. flag issues. Treat as reachable unless
+    // an explicit invalid/disconnected code is present.
+    return results.includes('PS01') || (!results.includes('PS08') && !results.includes('PS09'));
   }
 
   async searchPerson(query: PersonSearchQuery): Promise<PersonMatch[]> {
-    if (!query.lastName && !query.phone) return [];
-    const name = this.splitName(undefined, query.firstName, query.lastName);
-    const json = await this.call({
-      first: name.first,
-      last: name.last,
-      ...(query.phone ? { phone: query.phone.replace(/\D/g, '') } : {}),
-      ...(query.zip ? { postal: query.zip } : {}),
-    });
-    return (json?.Records ?? [])
-      .filter((rec: any) => rec?.PhoneNumber?.trim() || rec?.EmailAddress?.trim() || rec?.AddressLine1?.trim())
-      .map((rec: any) => {
-        const n = this.splitName(rec?.NameFull, rec?.NameFirst, rec?.NameLast);
-        const phone = this.e164(rec?.PhoneNumber);
-        return {
-          firstName: n.first || query.firstName || '',
-          lastName: n.last || query.lastName || '',
-          phones: phone ? [{ number: phone, lineType: 'unknown', isPrimary: true }] : [],
-          address: rec?.AddressLine1 ?? null,
-          city: rec?.City ?? null,
-          state: rec?.State ?? null,
-          zip: rec?.PostalCode ?? null,
-          ageRange: rec?.DemographicsAge ?? null,
-          relatives: [],
-          confidence: String(rec?.Results ?? '').includes('AS01') ? 82 : 60,
-          sourceProvider: this.code,
-        } as PersonMatch;
-      });
+    if (!query.phone) return []; // Global Phone is a reverse-phone lookup
+    const rec = await this.lookup(query.phone);
+    if (!rec) return [];
+    const { first, last } = this.splitCaller(this.callerName(rec));
+    const number = this.e164(rec?.PhoneNumber) ?? query.phone;
+    return [
+      {
+        firstName: first || 'Unknown',
+        lastName: last || 'Contact',
+        phones: [{ number, lineType: this.lineType(rec?.PhoneType), isPrimary: true }],
+        address: null,
+        city: rec?.Locality ?? null,
+        state: rec?.AdministrativeArea ?? null,
+        zip: rec?.PostalCode ?? null,
+        ageRange: null,
+        relatives: [],
+        confidence: first ? 80 : 45, // caller-ID name present ⇒ real identity
+        sourceProvider: this.code,
+      },
+    ];
+  }
+
+  async enrichPerson(input: { phone: string; firstName: string; lastName: string; zip?: string | null }): Promise<PersonEnrichment> {
+    const rec = await this.lookup(input.phone);
+    const number = this.e164(rec?.PhoneNumber) ?? this.e164(input.phone) ?? input.phone;
+    const caller = this.callerName(rec);
+    const callerName = this.splitCaller(caller);
+
+    return {
+      // Caller ID that differs from the lead's name is a useful alias.
+      aliases:
+        caller && `${callerName.first} ${callerName.last}`.trim().toLowerCase() !== `${input.firstName} ${input.lastName}`.trim().toLowerCase()
+          ? [`${callerName.first} ${callerName.last}`.trim()]
+          : [],
+      addresses:
+        rec?.Locality || rec?.PostalCode
+          ? [{ line1: '', city: rec?.Locality ?? '', state: rec?.AdministrativeArea ?? '', zip: rec?.PostalCode ?? '', type: 'current' }]
+          : [],
+      phones: [
+        {
+          number,
+          lineType: this.lineType(rec?.PhoneType),
+          carrier: rec?.Carrier ?? undefined,
+          active: rec ? this.isReachable(rec) : true,
+          spamRisk: 'low',
+          isPrimary: true,
+        },
+      ],
+      emails: [],
+      ageRange: null,
+      relatives: [],
+      associates: [],
+      property: { ownership: 'unknown' },
+      socialUrls: [], // Global Phone returns no social; never fetched
+      // Caller-ID name present ⇒ strong; otherwise reflects line validity.
+      providerConfidence: caller ? 0.85 : rec ? 0.6 : 0.3,
+      sourceProvider: this.code,
+    };
   }
 }

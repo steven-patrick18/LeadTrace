@@ -200,14 +200,14 @@ async function main() {
     },
     {
       code: 'MELISSA',
-      displayName: 'Melissa Personator',
+      displayName: 'Melissa Global Phone',
       description:
-        'Identity verification and contact append (Personator Consumer). Good for verifying/enriching records you already hold rather than open-ended people search.',
+        'Reverse phone lookup (Global Phone API): caller-ID name, carrier, line type, and the number\'s city/county/state/ZIP/timezone. A genuine phone → identity source.',
       websiteUrl: 'https://www.melissa.com',
       signupUrl: 'https://www.melissa.com/user/signup',
       docsUrl: 'https://docs.melissa.com',
       howToGet:
-        '1. Sign up at melissa.com — free tier includes monthly credits.\n2. In the account console, copy your License Key.\n3. Paste it as API Key below and Save credentials.\n4. Record the attestation, then Activate once the adapter is implemented.',
+        'Adapter IMPLEMENTED — uses the Global Phone API (reverse phone → caller-ID name + carrier + line type + geo).\n1. Sign up at melissa.com and copy your Cloud License Key (~24 chars).\n2. Enable the GLOBAL PHONE product on that license and add credits (a valid key with no Global Phone credits returns GE08).\n3. Paste the key below, record the attestation, then Activate.\nOnce enabled, searching a phone returns the caller-ID owner + location automatically.',
     },
   ];
   for (const p of PROVIDERS) {

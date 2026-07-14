@@ -10,6 +10,7 @@ import { AuditService } from '../common/audit.service';
 import { AuthUser } from '../common/decorators';
 import { toE164 } from '../common/phone.util';
 import { PrismaService } from '../common/prisma.service';
+import { LeadAccessService } from './lead-access.service';
 
 export interface CreateLeadInput {
   firstName: string;
@@ -30,6 +31,7 @@ export class LeadsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly access: LeadAccessService,
   ) {}
 
   /**
@@ -115,7 +117,8 @@ export class LeadsService {
     user: AuthUser,
     opts: { scope: 'ALL' | 'OWN'; status?: LeadStatus; tier?: string; q?: string; page?: number; pageSize?: number },
   ) {
-    const where: Prisma.LeadWhereInput = {};
+    // Admin-revoked leads never appear in this user's lists
+    const where: Prisma.LeadWhereInput = { ...(await this.access.blockFilter(user)) };
     if (opts.scope !== 'ALL') {
       where.OR = [{ assignedToId: user.id }, { createdById: user.id }];
     }
@@ -154,6 +157,9 @@ export class LeadsService {
   }
 
   async getOne(user: AuthUser, id: number) {
+    if (await this.access.isBlocked(user.id, id, user.roleId)) {
+      throw new ForbiddenException('Your access to this lead has been revoked by an admin');
+    }
     const lead = await this.prisma.lead.findUnique({
       where: { id },
       include: {
@@ -166,6 +172,7 @@ export class LeadsService {
         },
         routingHistory: { orderBy: { createdAt: 'asc' } },
         queueEntries: { where: { status: 'PENDING' } },
+        customValues: { include: { field: true } },
       },
     });
     if (!lead) throw new NotFoundException('Lead not found');
@@ -188,6 +195,9 @@ export class LeadsService {
   ) {
     const lead = await this.prisma.lead.findUnique({ where: { id } });
     if (!lead) throw new NotFoundException('Lead not found');
+    if (await this.access.isBlocked(user.id, id, user.roleId)) {
+      throw new ForbiddenException('Your access to this lead has been revoked by an admin');
+    }
 
     const scope = user.permissionScope;
     if (scope === 'OWN' && lead.createdById !== user.id) {

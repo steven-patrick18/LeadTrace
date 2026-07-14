@@ -64,6 +64,10 @@ const CASES: Array<[string, string, string, unknown, string, string]> = [
   ['edit_score_weights', 'GET', '/score-weights', undefined, 'MANAGER', 'ADMIN'],
   ['manage_dnc_optout', 'GET', '/dnc', undefined, 'AGENT', 'MANAGER'],
   ['view_enrichment_cost', 'GET', '/reports/enrichment-costs', undefined, 'AGENT', 'MANAGER'],
+  // Custom fields, comments, per-lead access control
+  ['manage_custom_fields', 'GET', '/custom-fields/all', undefined, 'MANAGER', 'ADMIN'],
+  ['comment_lead', 'GET', '/leads/999999/comments', undefined, '__NONE__', 'AGENT'],
+  ['manage_lead_access', 'GET', '/leads/999999/access', undefined, 'MANAGER', 'ADMIN'],
 ];
 
 describe.each(CASES)('permission %s', (key, method, path, body, roleWithout, roleWith) => {

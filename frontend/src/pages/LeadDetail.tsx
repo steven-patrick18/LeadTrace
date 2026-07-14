@@ -2,7 +2,10 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { ApiError, get, post } from '../api';
 import { useAuth } from '../auth';
+import { CommentsCard } from '../components/CommentsCard';
+import { CustomFieldsCard } from '../components/CustomFieldsCard';
 import { EnrichmentPanel } from '../components/EnrichmentPanel';
+import { LeadAccessCard } from '../components/LeadAccessCard';
 
 interface Lead {
   id: number;
@@ -22,6 +25,7 @@ interface Lead {
   phones: Array<{ id: number; phone: string; lineType: string | null; isPrimary: boolean }>;
   activities: Array<{ id: number; type: string; detail: string; createdAt: string; user: { name: string } }>;
   queueEntries: Array<{ id: number; transferPoint: string }>;
+  customValues: Array<{ fieldId: number; value: string }>;
 }
 
 export function LeadDetail() {
@@ -79,6 +83,11 @@ export function LeadDetail() {
         #{lead.id} {lead.firstName} {lead.lastName}{' '}
         <span className="badge tier">{lead.currentTier}</span>{' '}
         <span className={`badge ${lead.status}`}>{lead.status}</span>
+        {lead.status === 'CLOSED_WON' && lead.currentTier === 'CLOSER' && (
+          <span className="muted" style={{ fontSize: '0.8rem', marginLeft: 10 }}>
+            🏁 won — post-sale processing stays with {lead.assignedTo?.name ?? 'the Closer'}
+          </span>
+        )}
       </h1>
 
       <div className="grid cols2">
@@ -177,7 +186,10 @@ export function LeadDetail() {
         </div>
       </div>
 
+      <CustomFieldsCard leadId={lead.id} values={lead.customValues ?? []} onSaved={load} />
+      <CommentsCard leadId={lead.id} />
       <EnrichmentPanel leadId={lead.id} onCallableChange={setCallable} />
+      <LeadAccessCard leadId={lead.id} />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { AuditService } from '../common/audit.service';
 import { AuthUser } from '../common/decorators';
 import { PrismaService } from '../common/prisma.service';
+import { LeadAccessService } from '../leads/lead-access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import {
@@ -39,6 +40,7 @@ export class EnrichmentService {
     private readonly scoring: ScoringService,
     private readonly permissions: PermissionsService,
     private readonly notifications: NotificationsService,
+    private readonly leadAccess: LeadAccessService,
     mockEnricher: MockEnrichmentProvider,
     mockDnc: MockDncProvider,
   ) {
@@ -321,6 +323,9 @@ export class EnrichmentService {
   private async assertLeadAccess(user: AuthUser, leadId: number) {
     const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
     if (!lead) throw new NotFoundException('Lead not found');
+    if (await this.leadAccess.isBlocked(user.id, leadId, user.roleId)) {
+      throw new ForbiddenException('Your access to this lead has been revoked by an admin');
+    }
     const canViewAll = (await this.permissions.check(user.roleId, 'view_all_leads')).allowed;
     if (!canViewAll && lead.assignedToId !== user.id && lead.createdById !== user.id) {
       throw new ForbiddenException('You can only enrich/view your own leads');

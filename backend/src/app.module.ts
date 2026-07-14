@@ -17,6 +17,10 @@ import { GeoService } from './enrichment/geo.service';
 import { MockDncProvider } from './enrichment/mock-dnc.provider';
 import { MockEnrichmentProvider } from './enrichment/mock-enrichment.provider';
 import { ScoringService } from './enrichment/scoring.service';
+import { CommentsController } from './comments/comments.controller';
+import { CustomFieldsController } from './custom-fields/custom-fields.controller';
+import { LeadAccessController } from './leads/lead-access.controller';
+import { LeadAccessService } from './leads/lead-access.service';
 import { LeadsController } from './leads/leads.controller';
 import { LeadsService } from './leads/leads.service';
 import { LockdownController } from './lockdown/lockdown.controller';
@@ -59,6 +63,9 @@ import { UsersController } from './users/users.controller';
     SettingsController,
     LockdownController,
     EnrichmentController,
+    CustomFieldsController,
+    CommentsController,
+    LeadAccessController,
   ],
   providers: [
     PrismaService,
@@ -69,6 +76,7 @@ import { UsersController } from './users/users.controller';
     MockProvider,
     ProviderRegistry,
     SearchService,
+    LeadAccessService,
     LeadsService,
     NotificationsService,
     RoutingService,

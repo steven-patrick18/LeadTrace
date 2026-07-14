@@ -44,6 +44,10 @@ const MATRIX: Record<string, [Cell, Cell, Cell, Cell, Cell]> = {
   edit_score_weights:   [false, false, false, false, true],
   manage_dnc_optout:    [false, false, false, true,  true],
   view_enrichment_cost: [false, false, false, true,  true],
+  // Custom fields, comments, per-lead access control
+  manage_custom_fields: [false, false, false, false, true],
+  comment_lead:         [true,  true,  true,  true,  true], // + server-side participant rule
+  manage_lead_access:   [false, false, false, false, true],
 };
 
 function cellToPermission(cell: Cell): { allowed: boolean; scope: PermissionScope } {

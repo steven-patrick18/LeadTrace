@@ -37,6 +37,9 @@ export const PERMISSION_KEYS = [
   'edit_score_weights',
   'manage_dnc_optout',
   'view_enrichment_cost',
+  'manage_custom_fields',
+  'comment_lead',
+  'manage_lead_access',
 ] as const;
 
 @Injectable()

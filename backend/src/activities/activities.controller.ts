@@ -14,6 +14,7 @@ import { AuditService } from '../common/audit.service';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/decorators';
 import { PrismaService } from '../common/prisma.service';
 import { EnrichmentService } from '../enrichment/enrichment.service';
+import { LeadAccessService } from '../leads/lead-access.service';
 import { PermissionsService } from '../permissions/permissions.service';
 
 class LogActivityDto {
@@ -32,6 +33,7 @@ export class ActivitiesController {
     private readonly permissions: PermissionsService,
     private readonly enrichment: EnrichmentService,
     private readonly audit: AuditService,
+    private readonly leadAccess: LeadAccessService,
   ) {}
 
   /** Log a call or note (spec: every touch is an activities row). */
@@ -45,6 +47,9 @@ export class ActivitiesController {
   ) {
     const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
     if (!lead) throw new NotFoundException('Lead not found');
+    if (await this.leadAccess.isBlocked(user.id, leadId, user.roleId)) {
+      throw new ForbiddenException('Your access to this lead has been revoked by an admin');
+    }
     const canViewAll = (await this.permissions.check(user.roleId, 'view_all_leads')).allowed;
     if (!canViewAll && lead.assignedToId !== user.id && lead.createdById !== user.id) {
       throw new ForbiddenException('You can only log activity on your own leads');

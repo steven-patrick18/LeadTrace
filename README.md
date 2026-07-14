@@ -45,6 +45,7 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
 | Full call-chain smoke (34 checks) | `node backend/scripts/smoke.mjs` (needs dev server) |
 | Provider catalog/credential checks | `node backend/scripts/smoke-providers.mjs` (needs dev server) |
 | Enrichment module checks (29) | `node backend/scripts/smoke-enrichment.mjs` (needs dev server) |
+| Fields/comments/access checks (27) | `node backend/scripts/smoke-fields.mjs` (needs dev server) |
 | Lockdown drill | `node backend/scripts/smoke-lockdown.mjs` (needs dev server; briefly locks the system!) |
 
 ## Architecture notes
@@ -95,6 +96,25 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
 - **Compliance (spec §8)**: provider data is for sales lead-generation only.
   No feature may use it for credit, employment, insurance, or tenant-screening
   decisions (FCRA / DPPA / GLBA restricted).
+
+### Custom fields, comments, per-lead access
+
+- **Custom process fields**: the Admin defines fields in Settings (text /
+  number / date / dropdown) and they appear on every lead page. Values are
+  filled by whoever holds `edit_lead` on that lead and stay editable as
+  details are confirmed with the customer; every change is written to the
+  lead timeline and the audit log. Deactivating a field hides it without
+  losing data.
+- **Comments** (`comment_lead`): writable by the Manager, the Admin, and the
+  people who actually worked the lead (creator, assignee, routed to/from it,
+  or logged activity on it) — enforced server-side, not by role name.
+- **Post-sale at the Closer**: a CLOSED_WON lead stays assigned to its Closer
+  and remains open for comments, notes, and field updates — winning ends the
+  call chain, not the work.
+- **Per-lead access revocation** (`manage_lead_access`, Admin): the admin can
+  revoke any person's access to a specific lead — it disappears from their
+  lists, detail view, edits, call logging, enrichment, and comments. Admins
+  are immune (no self-lockout), and every revoke/restore is audited.
 
 ### Lead enrichment (sections A/C/D/E)
 

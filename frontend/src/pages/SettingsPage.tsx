@@ -7,9 +7,109 @@ export function SettingsPage() {
   return (
     <div>
       <h1>Settings</h1>
+      {can('manage_custom_fields') && <CustomFieldDefs />}
       {can('manage_permissions') && <AppSettings />}
       {can('edit_score_weights') && <ScoreWeights />}
       {can('system_lockdown') && <Lockdown />}
+    </div>
+  );
+}
+
+interface FieldDef {
+  id: number;
+  label: string;
+  fieldType: string;
+  options: string[] | null;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+function CustomFieldDefs() {
+  const [fields, setFields] = useState<FieldDef[]>([]);
+  const [label, setLabel] = useState('');
+  const [fieldType, setFieldType] = useState('TEXT');
+  const [options, setOptions] = useState('');
+  const [error, setError] = useState('');
+  const [msg, setMsg] = useState('');
+
+  const load = async () => setFields(await get<FieldDef[]>('/custom-fields/all'));
+  useEffect(() => { load(); }, []);
+
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setMsg('');
+    try {
+      await post('/custom-fields', {
+        label,
+        fieldType,
+        ...(fieldType === 'DROPDOWN'
+          ? { options: options.split(',').map((o) => o.trim()).filter(Boolean) }
+          : {}),
+        sortOrder: fields.length,
+      });
+      setLabel('');
+      setOptions('');
+      setMsg('Field added — it now appears on every lead page.');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
+  const toggle = async (f: FieldDef) => {
+    await patch(`/custom-fields/${f.id}`, { isActive: !f.isActive });
+    await load();
+  };
+
+  return (
+    <div className="card">
+      <h2>Custom lead fields</h2>
+      <p className="muted" style={{ fontSize: '0.8rem' }}>
+        Define the fields your process needs — they appear on every lead's page for the team to fill and keep
+        updated as details are confirmed with the customer. Deactivating hides a field without deleting its data.
+      </p>
+      {msg && <div className="ok">{msg}</div>}
+      {error && <div className="error">{error}</div>}
+      <form onSubmit={add} className="row" style={{ marginBottom: 14 }}>
+        <div className="field">
+          <label>Field name</label>
+          <input required minLength={2} value={label} onChange={(e) => setLabel(e.target.value)} placeholder='e.g. "Policy interest", "Budget"' />
+        </div>
+        <div className="field">
+          <label>Type</label>
+          <select value={fieldType} onChange={(e) => setFieldType(e.target.value)}>
+            <option value="TEXT">Text</option>
+            <option value="NUMBER">Number</option>
+            <option value="DATE">Date</option>
+            <option value="DROPDOWN">Dropdown</option>
+          </select>
+        </div>
+        {fieldType === 'DROPDOWN' && (
+          <div className="field" style={{ flex: 1 }}>
+            <label>Options (comma-separated)</label>
+            <input required value={options} onChange={(e) => setOptions(e.target.value)} placeholder="Hot, Warm, Cold" />
+          </div>
+        )}
+        <button type="submit">+ Add field</button>
+      </form>
+      <table style={{ maxWidth: 720 }}>
+        <thead>
+          <tr><th>Field</th><th>Type</th><th>Options</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          {fields.map((f) => (
+            <tr key={f.id}>
+              <td>{f.label}</td>
+              <td><span className="badge tier">{f.fieldType}</span></td>
+              <td className="muted">{f.options?.join(', ') ?? '—'}</td>
+              <td>{f.isActive ? <span className="badge CLOSED_WON">active</span> : <span className="badge INVALID">hidden</span>}</td>
+              <td><button className="ghost sm" onClick={() => toggle(f)}>{f.isActive ? 'Deactivate' : 'Activate'}</button></td>
+            </tr>
+          ))}
+          {fields.length === 0 && <tr><td colSpan={5} className="muted">No custom fields yet.</td></tr>}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -73,29 +73,30 @@ export class EnrichmentService {
     let costCents = 0;
     const failures: string[] = [];
 
-    // ── Section A: licensed provider data (paid, cache-first) ──
-    try {
-      const result = await this.cachedPaidCall<PersonEnrichment>(
-        `enrich:phone=${lead.primaryPhone}`,
-        ttlHours,
-        capCents,
-        user.id,
-        async () => {
-          const active = await this.prisma.providerSetting.findFirst({ where: { isActive: true } });
-          const adapter = (active && this.enrichers.get(active.code)) || this.enrichers.get('MOCK')!;
-          const data = await adapter.enrichPerson({
-            phone: lead.primaryPhone,
-            firstName: lead.firstName,
-            lastName: lead.lastName,
-            zip: lead.zip,
-          });
-          return { data, costCents: active?.code === adapter.code ? active.costPerSearchCents : 0, providerCode: adapter.code };
-        },
+    // ── Section A: query EVERY active provider, then merge + cross-verify ──
+    // Each provider is independently cache-first, spend-capped and
+    // request-limited. One provider failing (e.g. no balance) is skipped, not
+    // fatal — the others still contribute (PARTIAL). Fields confirmed by 2+
+    // providers get a higher accuracy score.
+    const input = { phone: lead.primaryPhone, firstName: lead.firstName, lastName: lead.lastName, zip: lead.zip };
+    const active = await this.prisma.providerSetting.findMany({ where: { isActive: true } });
+    const implemented = active.filter((p) => this.enrichers.has(p.code));
+    const perProvider: Array<{ code: string; data: PersonEnrichment }> = [];
+    for (const p of implemented) {
+      try {
+        const r = await this.enrichViaProvider(p, this.enrichers.get(p.code)!, input, ttlHours, capCents, user.id);
+        perProvider.push({ code: p.code, data: r.data });
+        costCents += r.paidCents;
+      } catch (e) {
+        failures.push(`${p.code}: ${(e as Error).message}`);
+      }
+    }
+    if (!perProvider.length) {
+      failures.push(
+        implemented.length ? 'no active provider returned data' : 'no active data provider — activate one on the Providers page',
       );
-      providerData = result.data;
-      costCents += result.paidCents;
-    } catch (e) {
-      failures.push(`provider: ${(e as Error).message}`);
+    } else {
+      providerData = this.mergeEnrichments(perProvider);
     }
 
     // ── Section C: free/public geo (always runs, $0) ──
@@ -318,6 +319,144 @@ export class EnrichmentService {
       });
     }
     return { data: result.data, paidCents: result.costCents, cacheHit: false };
+  }
+
+  /**
+   * One provider's enrichment: cache-first (keyed per provider), global spend
+   * cap + this provider's own daily request limit, records usage at this
+   * provider's cost. Throws on cap/limit/adapter error (caller skips it).
+   */
+  private async enrichViaProvider(
+    provider: { id: number; code: string; displayName: string; costPerSearchCents: number; dailyRequestLimit: number },
+    adapter: EnrichmentDataProvider,
+    input: { phone: string; firstName: string; lastName: string; zip?: string | null },
+    ttlHours: number,
+    capCents: number,
+    userId: number,
+  ): Promise<{ data: PersonEnrichment; paidCents: number }> {
+    const cacheKey = `enrich:${provider.code.toLowerCase()}:phone=${input.phone}`;
+    const cached = await this.prisma.searchCache.findUnique({ where: { searchKey: cacheKey } });
+    if (cached && cached.expiresAt > new Date()) {
+      await this.prisma.providerUsage.create({
+        data: { providerId: provider.id, userId, searchKey: cacheKey, cacheHit: true, costCents: 0 },
+      });
+      return { data: cached.response as unknown as PersonEnrichment, paidCents: 0 };
+    }
+
+    // Paid providers respect the global daily spend cap + their own request limit.
+    if (provider.costPerSearchCents > 0 && capCents > 0) {
+      const spent = await this.enrichmentSpendTodayCents();
+      if (spent >= capCents) {
+        await this.alertCapBreached(spent, capCents);
+        throw new Error(`daily enrichment spend cap reached ($${(capCents / 100).toFixed(2)})`);
+      }
+    }
+    if (provider.dailyRequestLimit > 0) {
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      const callsToday = await this.prisma.providerUsage.count({
+        where: { providerId: provider.id, createdAt: { gte: startOfDay }, cacheHit: false },
+      });
+      if (callsToday >= provider.dailyRequestLimit) {
+        throw new Error(`daily API request limit reached (${provider.dailyRequestLimit}/day)`);
+      }
+    }
+
+    const data = await adapter.enrichPerson(input);
+    await this.prisma.searchCache.upsert({
+      where: { searchKey: cacheKey },
+      update: {
+        provider: provider.code,
+        response: data as unknown as Prisma.InputJsonValue,
+        expiresAt: new Date(Date.now() + ttlHours * 3600_000),
+        createdAt: new Date(),
+      },
+      create: {
+        searchKey: cacheKey,
+        provider: provider.code,
+        response: data as unknown as Prisma.InputJsonValue,
+        expiresAt: new Date(Date.now() + ttlHours * 3600_000),
+      },
+    });
+    await this.prisma.providerUsage.create({
+      data: { providerId: provider.id, userId, searchKey: cacheKey, cacheHit: false, costCents: provider.costPerSearchCents },
+    });
+    return { data, paidCents: provider.costPerSearchCents };
+  }
+
+  /**
+   * Merge several providers' enrichments into one record and score its accuracy.
+   * "Best probability of accuracy" = agreement: a phone/email reported by more
+   * providers is more trustworthy. Every field is unioned; conflicts prefer the
+   * more informative value; the score rises with sources + agreement.
+   */
+  private mergeEnrichments(results: Array<{ code: string; data: PersonEnrichment }>): PersonEnrichment {
+    const sources = results.map((r) => r.code);
+    if (results.length === 1) {
+      const only = results[0].data;
+      return { ...only, sources, accuracyScore: Math.round(only.providerConfidence * 100) };
+    }
+
+    // Phones — union by E.164, count how many providers reported each.
+    const phoneMap = new Map<string, PersonEnrichment['phones'][number] & { verifiedBy: number }>();
+    for (const { data } of results) {
+      for (const ph of data.phones) {
+        const cur = phoneMap.get(ph.number);
+        if (!cur) {
+          phoneMap.set(ph.number, { ...ph, verifiedBy: 1 });
+        } else {
+          cur.verifiedBy += 1;
+          if (cur.lineType === 'unknown' && ph.lineType !== 'unknown') cur.lineType = ph.lineType;
+          if (!cur.carrier && ph.carrier) cur.carrier = ph.carrier;
+          if (ph.active) cur.active = true;
+          if (ph.spamRisk === 'high') cur.spamRisk = 'high';
+          if (ph.isPrimary) cur.isPrimary = true;
+        }
+      }
+    }
+    const phones = [...phoneMap.values()].sort(
+      (a, b) => Number(b.isPrimary) - Number(a.isPrimary) || b.verifiedBy - a.verifiedBy,
+    );
+
+    const uniq = (arr: string[]) => [...new Set(arr.map((s) => s.trim()).filter(Boolean))];
+    const emails = uniq(results.flatMap((r) => r.data.emails.map((e) => e.toLowerCase())));
+
+    const addrKey = (a: PersonEnrichment['addresses'][number]) => `${a.line1}|${a.zip}`.toLowerCase();
+    const addrMap = new Map<string, PersonEnrichment['addresses'][number]>();
+    for (const { data } of results) for (const a of data.addresses) if (!addrMap.has(addrKey(a))) addrMap.set(addrKey(a), a);
+
+    const nameUniq = <T extends { name: string }>(arr: T[]) => {
+      const m = new Map<string, T>();
+      for (const x of arr) if (x.name && !m.has(x.name.toLowerCase())) m.set(x.name.toLowerCase(), x);
+      return [...m.values()];
+    };
+
+    // Prefer the most confident source for scalar fields.
+    const best = [...results].sort((a, b) => b.data.providerConfidence - a.data.providerConfidence)[0].data;
+    const property = results.map((r) => r.data.property).find((p) => p.ownership !== 'unknown') ?? best.property;
+
+    // Accuracy: average confidence (80%) + agreement bonus for cross-verified
+    // phones and multiple sources (up to +20).
+    const avgConf = results.reduce((s, r) => s + r.data.providerConfidence, 0) / results.length;
+    const verifiedPhones = phones.filter((p) => p.verifiedBy >= 2).length;
+    const agreementBonus = Math.min(20, verifiedPhones * 8 + (sources.length - 1) * 5);
+    const accuracyScore = Math.max(5, Math.min(99, Math.round(avgConf * 100 * 0.8 + agreementBonus)));
+
+    return {
+      aliases: uniq(results.flatMap((r) => r.data.aliases)),
+      addresses: [...addrMap.values()],
+      phones,
+      emails,
+      ageRange: best.ageRange,
+      relatives: nameUniq(results.flatMap((r) => r.data.relatives)),
+      associates: nameUniq(results.flatMap((r) => r.data.associates)),
+      property,
+      socialUrls: uniq(results.flatMap((r) => r.data.socialUrls)),
+      providerConfidence: avgConf,
+      sourceProvider: sources.join('+'),
+      sources,
+      accuracyScore,
+    };
   }
 
   private async enrichmentSpendTodayCents(): Promise<number> {

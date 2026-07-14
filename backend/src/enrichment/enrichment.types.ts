@@ -26,6 +26,8 @@ export interface EnrichedPhone {
   active: boolean;
   spamRisk: 'low' | 'med' | 'high';
   isPrimary: boolean;
+  /** How many active providers independently reported this phone (cross-verification). */
+  verifiedBy?: number;
 }
 
 export interface PersonEnrichment {
@@ -40,6 +42,14 @@ export interface PersonEnrichment {
   socialUrls: string[]; // URL strings ONLY — never fetched (see scope rule above)
   providerConfidence: number; // 0..1
   sourceProvider: string;
+  /** When merged from several active providers: which ones contributed. */
+  sources?: string[];
+  /**
+   * 0..100 cross-provider accuracy for the merged record: rises with the number
+   * of providers, their individual confidence, and how much they AGREE
+   * (fields confirmed by 2+ sources). Present only on multi-provider merges.
+   */
+  accuracyScore?: number;
 }
 
 // ── Section C: free / public geo data ────────────────────────

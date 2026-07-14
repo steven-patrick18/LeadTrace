@@ -30,70 +30,97 @@ export class SearchService {
     const query = this.normalizeQuery(rawQuery);
     const searchKey = this.buildSearchKey(query);
 
-    const provider = await this.activeProvider();
-    const adapter = this.registry.get(provider.code);
-    if (!adapter) {
-      throw new ServiceUnavailableException(
-        `Provider ${provider.code} is active in settings but has no adapter registered`,
-      );
+    // Query EVERY active provider with an adapter; each is independently
+    // cache-first and cap/limit-gated. Results are merged and deduped by phone,
+    // with a match cross-verified by more providers ranked higher.
+    const active = await this.prisma.providerSetting.findMany({ where: { isActive: true } });
+    const implemented = active.filter((p) => this.registry.get(p.code));
+    if (!implemented.length) {
+      throw new ServiceUnavailableException('No active data provider — activate one on the Providers page');
     }
 
-    // 1) Cache
-    const cached = await this.prisma.searchCache.findUnique({ where: { searchKey } });
-    if (cached && cached.expiresAt > new Date()) {
-      await this.recordUsage(provider.id, userId, searchKey, true, 0);
-      return {
-        matches: cached.response as unknown as PersonMatch[],
-        cacheHit: true,
-        provider: provider.code,
-        searchedAt: cached.createdAt,
-      };
-    }
+    const collected: PersonMatch[] = [];
+    const usedProviders: string[] = [];
+    let anyLive = false;
+    const errors: string[] = [];
 
-    // 2) Spend cap (spec §8 NFR: daily spend cap per provider with alert)
-    if (provider.dailySpendCapCents > 0) {
-      const spentToday = await this.spentTodayCents(provider.id);
-      if (spentToday + provider.costPerSearchCents > provider.dailySpendCapCents) {
-        await this.audit.log({
-          userId,
-          action: 'PROVIDER_SPEND_CAP_HIT',
-          detail: { provider: provider.code, spentToday, cap: provider.dailySpendCapCents },
+    for (const provider of implemented) {
+      const key = `search:${provider.code.toLowerCase()}:${searchKey}`;
+      try {
+        const cached = await this.prisma.searchCache.findUnique({ where: { searchKey: key } });
+        if (cached && cached.expiresAt > new Date()) {
+          await this.recordUsage(provider.id, userId, key, true, 0);
+          collected.push(...(cached.response as unknown as PersonMatch[]));
+          usedProviders.push(provider.code);
+          continue;
+        }
+        // Spend cap + request limit (paid providers only meaningfully)
+        if (provider.dailySpendCapCents > 0) {
+          const spent = await this.spentTodayCents(provider.id);
+          if (spent + provider.costPerSearchCents > provider.dailySpendCapCents) {
+            await this.audit.log({ userId, action: 'PROVIDER_SPEND_CAP_HIT', detail: { provider: provider.code } });
+            errors.push(`${provider.code}: spend cap reached`);
+            continue;
+          }
+        }
+        if (provider.dailyRequestLimit > 0 && (await this.liveCallsToday(provider.id)) >= provider.dailyRequestLimit) {
+          await this.audit.log({ userId, action: 'PROVIDER_REQUEST_LIMIT_HIT', detail: { provider: provider.code } });
+          errors.push(`${provider.code}: request limit reached`);
+          continue;
+        }
+
+        const matches = await this.registry.get(provider.code)!.searchPerson(query);
+        anyLive = true;
+        const ttlHours = provider.cacheTtlHours || 720;
+        const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000);
+        await this.prisma.searchCache.upsert({
+          where: { searchKey: key },
+          update: { provider: provider.code, response: matches as unknown as Prisma.InputJsonValue, expiresAt, createdAt: new Date() },
+          create: { searchKey: key, provider: provider.code, response: matches as unknown as Prisma.InputJsonValue, expiresAt },
         });
-        throw new ServiceUnavailableException(
-          `Daily spend cap reached for provider ${provider.displayName}. Try again tomorrow or raise the cap in Settings.`,
-        );
+        await this.recordUsage(provider.id, userId, key, false, provider.costPerSearchCents);
+        collected.push(...matches);
+        usedProviders.push(provider.code);
+      } catch (e) {
+        errors.push(`${provider.code}: ${(e as Error).message}`);
       }
     }
 
-    // 2b) API access limit: max live requests per day for this provider
-    if (provider.dailyRequestLimit > 0) {
-      const callsToday = await this.liveCallsToday(provider.id);
-      if (callsToday >= provider.dailyRequestLimit) {
-        await this.audit.log({
-          userId,
-          action: 'PROVIDER_REQUEST_LIMIT_HIT',
-          detail: { provider: provider.code, callsToday, limit: provider.dailyRequestLimit },
-        });
-        throw new ServiceUnavailableException(
-          `Daily API request limit reached for ${provider.displayName} (${provider.dailyRequestLimit}/day). Cached results still work.`,
-        );
+    return {
+      matches: this.mergeMatches(collected),
+      cacheHit: !anyLive && usedProviders.length > 0,
+      provider: usedProviders.join('+') || 'none',
+      providers: usedProviders,
+      errors,
+      searchedAt: new Date(),
+    };
+  }
+
+  /** Dedupe matches across providers by primary phone; cross-verified = higher. */
+  private mergeMatches(all: PersonMatch[]): PersonMatch[] {
+    const byPhone = new Map<string, PersonMatch & { verifiedBy: number }>();
+    const noPhone: PersonMatch[] = [];
+    for (const m of all) {
+      const primary = m.phones?.find((p) => p.isPrimary)?.number ?? m.phones?.[0]?.number;
+      if (!primary) {
+        noPhone.push(m);
+        continue;
+      }
+      const cur = byPhone.get(primary);
+      if (!cur) {
+        byPhone.set(primary, { ...m, verifiedBy: 1 });
+      } else {
+        cur.verifiedBy += 1;
+        // Keep the higher-confidence record; boost for cross-verification.
+        if (m.confidence > cur.confidence) Object.assign(cur, m, { verifiedBy: cur.verifiedBy });
       }
     }
-
-    // 3) Live provider call
-    const matches = await adapter.searchPerson(query);
-
-    // 4) Store in cache (upsert handles expired rows being refreshed)
-    const ttlHours = provider.cacheTtlHours || 720;
-    const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000);
-    await this.prisma.searchCache.upsert({
-      where: { searchKey },
-      update: { provider: provider.code, response: matches as unknown as Prisma.InputJsonValue, expiresAt, createdAt: new Date() },
-      create: { searchKey, provider: provider.code, response: matches as unknown as Prisma.InputJsonValue, expiresAt },
-    });
-    await this.recordUsage(provider.id, userId, searchKey, false, provider.costPerSearchCents);
-
-    return { matches, cacheHit: false, provider: provider.code, searchedAt: new Date() };
+    const merged = [...byPhone.values()].map((m) => ({
+      ...m,
+      confidence: Math.min(99, m.confidence + (m.verifiedBy - 1) * 8), // agreement bonus
+      sourceProvider: m.verifiedBy > 1 ? `${m.sourceProvider} +${m.verifiedBy - 1}` : m.sourceProvider,
+    }));
+    return [...merged, ...noPhone].sort((a, b) => b.confidence - a.confidence).slice(0, 25);
   }
 
   private normalizeQuery(raw: PersonSearchQuery): PersonSearchQuery {

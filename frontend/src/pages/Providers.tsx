@@ -47,12 +47,13 @@ export function Providers() {
   return (
     <div>
       <h1>Data Providers</h1>
-      <p className="muted" style={{ maxWidth: 780 }}>
-        Exactly <strong>one provider is active</strong> at a time — it serves every person search. Every search is
-        cache-first, so repeated queries never hit the provider again until the cache TTL expires. Compliance:
-        provider data is licensed for <strong>sales lead-generation only</strong> — never credit, employment,
-        insurance, or tenant-screening decisions (FCRA / DPPA / GLBA). Activation requires saved credentials and a
-        recorded permitted-use attestation.
+      <p className="muted" style={{ maxWidth: 820 }}>
+        Activate <strong>one or more providers</strong>. When you enrich a lead, LeadTrace queries every active
+        provider, merges the results, and <strong>cross-verifies</strong> — details confirmed by more than one
+        provider score higher accuracy. Every call is cache-first (repeats are free until the TTL expires) and
+        each provider respects its own spend cap and request limit. Compliance: provider data is licensed for{' '}
+        <strong>sales lead-generation only</strong> — never credit, employment, insurance, or tenant-screening
+        decisions (FCRA / DPPA / GLBA). Activation requires saved credentials and a recorded permitted-use attestation.
       </p>
       {msg && <div className="ok">{msg}</div>}
       {error && <div className="error">{error}</div>}
@@ -121,7 +122,7 @@ function ProviderCard({
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
           <button className="ghost sm" onClick={() => nav(`/providers/${p.id}`)}>Manage →</button>
           {p.isActive ? (
-            <button className="warn sm" onClick={() => update({ isActive: false }, `${p.displayName} deactivated. Activate another provider before searching.`)}>
+            <button className="warn sm" onClick={() => update({ isActive: false }, `${p.displayName} deactivated.`)}>
               Deactivate
             </button>
           ) : (

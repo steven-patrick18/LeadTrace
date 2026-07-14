@@ -10,7 +10,7 @@ interface Enrichment {
   providerData: {
     aliases: string[];
     addresses: Array<{ line1: string; city: string; state: string; zip: string; type: string; since?: string }>;
-    phones: Array<{ number: string; lineType: string; carrier?: string; active: boolean; spamRisk: string; isPrimary: boolean }>;
+    phones: Array<{ number: string; lineType: string; carrier?: string; active: boolean; spamRisk: string; isPrimary: boolean; verifiedBy?: number }>;
     emails: string[];
     ageRange: string | null;
     relatives: Array<{ name: string; relation?: string }>;
@@ -19,6 +19,8 @@ interface Enrichment {
     socialUrls: string[];
     providerConfidence: number;
     sourceProvider: string;
+    sources?: string[];
+    accuracyScore?: number;
   } | null;
   geoData: {
     timezone: string | null;
@@ -176,6 +178,30 @@ export function EnrichmentPanel({ leadId, onCallableChange }: { leadId: number; 
             </p>
           )}
 
+          {/* Cross-provider accuracy — the "best probability of accuracy" */}
+          {p?.sources && p.sources.length > 0 && (
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0',
+                background: 'var(--panel2)', borderRadius: 8, padding: '8px 12px',
+              }}
+            >
+              {typeof p.accuracyScore === 'number' && (
+                <span style={{
+                  fontWeight: 800, fontSize: '1.1rem',
+                  color: p.accuracyScore >= 70 ? 'var(--green)' : p.accuracyScore >= 40 ? 'var(--amber)' : 'var(--red)',
+                }}>
+                  {p.accuracyScore}%
+                </span>
+              )}
+              <span style={{ fontSize: '0.84rem' }}>
+                data accuracy — cross-checked across{' '}
+                <strong>{p.sources.length} provider{p.sources.length > 1 ? 's' : ''}</strong>{' '}
+                <span className="muted">({p.sources.join(', ')})</span>
+              </span>
+            </div>
+          )}
+
           {/* Phone quality badges */}
           {p && p.phones.length > 0 && (
             <div style={{ margin: '10px 0' }}>
@@ -187,7 +213,12 @@ export function EnrichmentPanel({ leadId, onCallableChange }: { leadId: number; 
                   {ph.carrier && <span className="muted">{ph.carrier}</span>}{' '}
                   <span className={`badge ${ph.spamRisk === 'low' ? 'CLOSED_WON' : ph.spamRisk === 'med' ? 'PENDING_ROUTING' : 'CLOSED_LOST'}`}>
                     spam risk: {ph.spamRisk}
-                  </span>
+                  </span>{' '}
+                  {ph.verifiedBy && ph.verifiedBy >= 2 && (
+                    <span className="badge CLOSED_WON" title="Confirmed by more than one provider">
+                      ✓ verified ×{ph.verifiedBy}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>

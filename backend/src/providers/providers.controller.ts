@@ -172,10 +172,8 @@ export class ProvidersController {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      // Exactly one active provider at a time
-      if (dto.isActive === true) {
-        await tx.providerSetting.updateMany({ where: { NOT: { id } }, data: { isActive: false } });
-      }
+      // Multiple providers may be active at once — enrichment queries them all
+      // and cross-verifies. No auto-deactivation of the others.
       return tx.providerSetting.update({
         where: { id },
         data: {

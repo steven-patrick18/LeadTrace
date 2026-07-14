@@ -209,6 +209,74 @@ async function main() {
       howToGet:
         'Adapter IMPLEMENTED — uses the Global Phone API (reverse phone → caller-ID name + carrier + line type + geo).\n1. Sign up at melissa.com and copy your Cloud License Key (~24 chars).\n2. Enable the GLOBAL PHONE product on that license and add credits (a valid key with no Global Phone credits returns GE08).\n3. Paste the key below, record the attestation, then Activate.\nOnce enabled, searching a phone returns the caller-ID owner + location automatically.',
     },
+    // ── Easy-signup providers (instant API keys, no sales call) ──
+    {
+      code: 'TWILIO_LOOKUP',
+      displayName: 'Twilio Lookup',
+      description:
+        'Instant pay-as-you-go account. Returns caller-ID name (a reverse-phone identity), line type and carrier. One of the easiest APIs to get.',
+      websiteUrl: 'https://www.twilio.com/lookup',
+      signupUrl: 'https://www.twilio.com/try-twilio',
+      docsUrl: 'https://www.twilio.com/docs/lookup/v2-api',
+      howToGet:
+        'Adapter IMPLEMENTED. Easiest instant signup.\n1. Create a free Twilio account at twilio.com/try-twilio (instant, small trial credit).\n2. From the Console dashboard copy your Account SID and Auth Token.\n3. Save the Account SID as API key and the Auth Token as API secret below.\n4. Record the attestation and Activate. caller_name (CNAM) ≈ $0.01/lookup, line type ≈ $0.008.',
+    },
+    {
+      code: 'IPQS',
+      displayName: 'IPQualityScore (Phone)',
+      description:
+        'Phone validation with a fraud/spam score and line intelligence. FREE 5,000 lookups/month, instant key — great for the callable gate and spam-risk.',
+      websiteUrl: 'https://www.ipqualityscore.com',
+      signupUrl: 'https://www.ipqualityscore.com/create-account',
+      docsUrl: 'https://www.ipqualityscore.com/documentation/phone-number-validation-api/overview',
+      howToGet:
+        'Adapter IMPLEMENTED. Free instant key.\n1. Create a free account at ipqualityscore.com (5,000 lookups/month free).\n2. Copy your API key from the dashboard.\n3. Paste it as API key below, record the attestation, and Activate.\nReturns validity, active status, line type, carrier and a fraud/spam score.',
+    },
+    {
+      code: 'NUMVERIFY',
+      displayName: 'NumVerify (apilayer)',
+      description:
+        'The simplest phone-validation API: validity, line type, carrier, country and location. FREE 100 lookups/month, instant key.',
+      websiteUrl: 'https://numverify.com',
+      signupUrl: 'https://numverify.com/product',
+      docsUrl: 'https://numverify.com/documentation',
+      howToGet:
+        'Adapter IMPLEMENTED. Free instant key.\n1. Sign up at numverify.com (free tier: 100 lookups/month).\n2. Copy your API Access Key.\n3. Paste it as API key below, record the attestation, and Activate.',
+    },
+    // ── Catalog only (easy signups; adapters can be added on request) ──
+    {
+      code: 'VERIPHONE',
+      displayName: 'Veriphone',
+      description:
+        'Simple global phone validation (valid, type, carrier, country). Free tier with an instant key.',
+      websiteUrl: 'https://veriphone.io',
+      signupUrl: 'https://veriphone.io/',
+      docsUrl: 'https://veriphone.io/docs',
+      howToGet:
+        'Easy instant key at veriphone.io (free tier). Paste it below and Save. Ask your developer to enable the Veriphone adapter, then Activate.',
+    },
+    {
+      code: 'ABSTRACT_PHONE',
+      displayName: 'Abstract Phone Validation',
+      description:
+        'AbstractAPI phone validation: valid, line type, carrier, location. Free tier, instant key, very simple REST.',
+      websiteUrl: 'https://www.abstractapi.com/api/phone-validation-api',
+      signupUrl: 'https://www.abstractapi.com/api/phone-validation-api',
+      docsUrl: 'https://docs.abstractapi.com/phone-validation',
+      howToGet:
+        'Easy instant key at abstractapi.com (free tier). Paste it below and Save. Ask your developer to enable the Abstract adapter, then Activate.',
+    },
+    {
+      code: 'TELNYX',
+      displayName: 'Telnyx Number Lookup',
+      description:
+        'Telnyx Number Lookup: carrier, line type and portability. Instant self-serve account, pay-as-you-go.',
+      websiteUrl: 'https://telnyx.com/products/number-lookup',
+      signupUrl: 'https://telnyx.com/sign-up',
+      docsUrl: 'https://developers.telnyx.com/docs/api/v2/number-lookup',
+      howToGet:
+        'Create a Telnyx account (instant), generate an API key. Paste it below and Save. Ask your developer to enable the Telnyx adapter, then Activate.',
+    },
   ];
   for (const p of PROVIDERS) {
     const { code, isActive, ...fields } = p;

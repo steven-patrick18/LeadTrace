@@ -33,11 +33,14 @@ import { NotificationsService } from './notifications/notifications.service';
 import { PermissionsController } from './permissions/permissions.controller';
 import { PermissionsService } from './permissions/permissions.service';
 import { BatchDataProvider } from './providers/batchdata.provider';
+import { IpqsProvider } from './providers/ipqs.provider';
 import { MelissaProvider } from './providers/melissa.provider';
 import { MockProvider } from './providers/mock.provider';
+import { NumverifyProvider } from './providers/numverify.provider';
 import { OwnServerProvider } from './providers/own-server.provider';
 import { ProviderRegistry } from './providers/provider.registry';
 import { TrestleProvider } from './providers/trestle.provider';
+import { TwilioLookupProvider } from './providers/twilio-lookup.provider';
 import { ProvidersController } from './providers/providers.controller';
 import { ReportsController } from './reports/reports.controller';
 import { ReportsService } from './reports/reports.service';
@@ -89,6 +92,9 @@ import { UsersController } from './users/users.controller';
     BatchDataProvider,
     TrestleProvider,
     MelissaProvider,
+    TwilioLookupProvider,
+    IpqsProvider,
+    NumverifyProvider,
     ProviderRegistry,
     SearchService,
     LeadAccessService,

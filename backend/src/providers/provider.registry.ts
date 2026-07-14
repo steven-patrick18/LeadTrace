@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { BatchDataProvider } from './batchdata.provider';
+import { IpqsProvider } from './ipqs.provider';
 import { MelissaProvider } from './melissa.provider';
 import { MockProvider } from './mock.provider';
+import { NumverifyProvider } from './numverify.provider';
 import { OwnServerProvider } from './own-server.provider';
 import { PersonDataProvider } from './provider.interface';
 import { TrestleProvider } from './trestle.provider';
+import { TwilioLookupProvider } from './twilio-lookup.provider';
 
 /**
  * Adapter registry — the single place that knows which provider codes have a
@@ -22,12 +25,18 @@ export class ProviderRegistry {
     batchData: BatchDataProvider,
     trestle: TrestleProvider,
     melissa: MelissaProvider,
+    twilio: TwilioLookupProvider,
+    ipqs: IpqsProvider,
+    numverify: NumverifyProvider,
   ) {
     this.register(mock);
     this.register(engine); // free self-hosted tier
-    this.register(batchData); // needs account balance
-    this.register(trestle); // needs a valid key
-    this.register(melissa); // needs an enabled license
+    this.register(batchData);
+    this.register(trestle);
+    this.register(melissa);
+    this.register(twilio); // easy: caller name + line type
+    this.register(ipqs); // easy: free 5k/mo, fraud/spam score
+    this.register(numverify); // easy: free phone validation
     // Endato + IDI adapters register here when implemented — no other change.
   }
 

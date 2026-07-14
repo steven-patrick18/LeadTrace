@@ -21,6 +21,7 @@ import { NotificationsService } from './notifications/notifications.service';
 import { PermissionsController } from './permissions/permissions.controller';
 import { PermissionsService } from './permissions/permissions.service';
 import { MockProvider } from './providers/mock.provider';
+import { ProviderRegistry } from './providers/provider.registry';
 import { ProvidersController } from './providers/providers.controller';
 import { ReportsController } from './reports/reports.controller';
 import { ReportsService } from './reports/reports.service';
@@ -59,6 +60,7 @@ import { UsersController } from './users/users.controller';
     AuthService,
     PermissionsService,
     MockProvider,
+    ProviderRegistry,
     SearchService,
     LeadsService,
     NotificationsService,

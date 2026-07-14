@@ -43,6 +43,7 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
 | Type checks | `npx tsc -p backend/tsconfig.build.json --noEmit` / `npx tsc -b frontend` |
 | Invariant + permission tests (42) | `cd backend && npm run test:e2e` (needs dev server + DB) |
 | Full call-chain smoke (34 checks) | `node backend/scripts/smoke.mjs` (needs dev server) |
+| Provider catalog/credential checks | `node backend/scripts/smoke-providers.mjs` (needs dev server) |
 | Lockdown drill | `node backend/scripts/smoke-lockdown.mjs` (needs dev server; briefly locks the system!) |
 
 ## Architecture notes
@@ -76,10 +77,18 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
 
 - One interface (`PersonDataProvider`) → one normalized match shape with a
   0–100 **confidence score** surfaced in the UI.
-- `MOCK` provider ships active (deterministic synthetic data, $0, reserved
-  555-01XX numbers). Add a real provider (Endato/Enformion, Trestle, IDI…) by
-  implementing the interface, registering it in `SearchService`, and activating it
-  in Settings — activation **requires a recorded permitted-use attestation**.
+- The **Providers page** (Admin, `manage_providers`) ships a catalog — Mock,
+  Endato/Enformion, Trestle, idiCORE, BatchData, Melissa, plus custom entries —
+  each with step-by-step "how to get access" instructions, sign-up/docs links,
+  API-credential storage, cost/cap/TTL config, and Activate/Deactivate.
+  Exactly one provider is active at a time.
+- **Credentials never reach the browser**: keys are write-only via the API; GET
+  returns only presence + last 4 characters. Values are never audit-logged.
+- Activation is triple-guarded: saved credentials + recorded permitted-use
+  attestation + an implemented adapter (register new adapters in
+  `backend/src/providers/provider.registry.ts` — no other file changes).
+- `MOCK` ships active (deterministic synthetic data, $0, reserved 555-01XX
+  numbers) so development and training cost nothing.
 - **Cache-first, always**: repeat searches cost $0; per-provider daily spend caps
   block overruns; the API-costs report shows live calls vs cache hits.
 - **Compliance (spec §8)**: provider data is for sales lead-generation only.

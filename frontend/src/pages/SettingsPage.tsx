@@ -2,76 +2,13 @@ import { useEffect, useState } from 'react';
 import { get, patch, post } from '../api';
 import { useAuth } from '../auth';
 
-interface Provider {
-  id: number;
-  code: string;
-  displayName: string;
-  isActive: boolean;
-  costPerSearchCents: number;
-  dailySpendCapCents: number;
-  cacheTtlHours: number;
-  permittedUseAttestation: string | null;
-}
-
 export function SettingsPage() {
   const { can } = useAuth();
   return (
     <div>
       <h1>Settings</h1>
-      {can('manage_providers') && <Providers />}
       {can('manage_permissions') && <AppSettings />}
       {can('system_lockdown') && <Lockdown />}
-    </div>
-  );
-}
-
-function Providers() {
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [error, setError] = useState('');
-
-  const load = async () => setProviders(await get<Provider[]>('/providers'));
-  useEffect(() => { load(); }, []);
-
-  const update = async (id: number, data: Partial<Provider>) => {
-    setError('');
-    try {
-      await patch(`/providers/${id}`, data);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
-    }
-  };
-
-  return (
-    <div className="card">
-      <h2>Data providers</h2>
-      <p className="muted" style={{ fontSize: '0.8rem' }}>
-        Provider data is licensed for <strong>sales lead-generation only</strong>. Never use it for credit,
-        employment, insurance, or tenant-screening decisions (FCRA / DPPA / GLBA restricted). Activating a
-        provider requires a recorded permitted-use attestation.
-      </p>
-      {error && <div className="error">{error}</div>}
-      <table>
-        <thead>
-          <tr><th>Provider</th><th>Active</th><th>Cost/search</th><th>Daily cap</th><th>Cache TTL</th><th></th></tr>
-        </thead>
-        <tbody>
-          {providers.map((p) => (
-            <tr key={p.id}>
-              <td>{p.displayName} <span className="muted">({p.code})</span></td>
-              <td>{p.isActive ? <span className="badge CLOSED_WON">ACTIVE</span> : <span className="badge INVALID">off</span>}</td>
-              <td>${(p.costPerSearchCents / 100).toFixed(2)}</td>
-              <td>{p.dailySpendCapCents ? `$${(p.dailySpendCapCents / 100).toFixed(2)}` : '—'}</td>
-              <td>{p.cacheTtlHours}h</td>
-              <td>
-                {!p.isActive && (
-                  <button className="sm" onClick={() => update(p.id, { isActive: true })}>Activate</button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

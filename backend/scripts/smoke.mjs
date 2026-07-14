@@ -45,11 +45,12 @@ assert(r.json.cacheHit === true, 'equivalent search hits cache (normalized searc
 r = await api(closer.token, 'POST', '/search', { lastName: 'Smith' });
 assert(r.status === 403, 'closer denied search_providers by matrix', r.status);
 
-// 4. Agent one-click converts to lead
+// 4. Agent one-click converts to lead (force:true so the script is re-runnable;
+//    the duplicate guard itself is asserted in step 5)
 r = await api(agent.token, 'POST', '/leads', {
   firstName: m.firstName, lastName: m.lastName, phones: m.phones,
   address: m.address, city: m.city, state: m.state, zip: m.zip,
-  sourceProvider: m.sourceProvider, rawProviderData: m,
+  sourceProvider: m.sourceProvider, rawProviderData: m, force: true,
 });
 assert(r.status === 201, 'agent creates lead from match', r.json);
 const leadId = r.json.id;
@@ -155,7 +156,7 @@ assert(r.status === 200, 'revoke works too');
 const bulkLeads = [];
 for (let i = 0; i < 3; i++) {
   r = await api(agent.token, 'POST', '/leads', {
-    firstName: `Bulk${i}`, lastName: 'Tester', phones: [{ number: `+1303555030${i}` }],
+    firstName: `Bulk${i}`, lastName: 'Tester', phones: [{ number: `+1303555030${i}` }], force: true,
   });
   bulkLeads.push(r.json.id);
   await api(agent.token, 'POST', `/routing/leads/${r.json.id}/request-transfer`, {});

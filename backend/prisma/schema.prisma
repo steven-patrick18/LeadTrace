@@ -234,10 +234,20 @@ model ProviderSetting {
   id                     Int      @id @default(autoincrement())
   code                   String   @unique // e.g. MOCK, ENDATO, TRESTLE
   displayName            String   @map("display_name")
+  description            String?
   isActive               Boolean  @default(false) @map("is_active")
   costPerSearchCents     Int      @default(0) @map("cost_per_search_cents")
   dailySpendCapCents     Int      @default(0) @map("daily_spend_cap_cents") // 0 = no cap
   cacheTtlHours          Int      @default(720) @map("cache_ttl_hours")
+  // Credentials live server-side ONLY — never returned by the API (spec §8 NFR:
+  // provider keys never reach the browser). GET exposes hasCredentials/last4.
+  apiKey                 String?  @map("api_key")
+  apiSecret              String?  @map("api_secret")
+  baseUrl                String?  @map("base_url")
+  websiteUrl             String?  @map("website_url")
+  signupUrl              String?  @map("signup_url")
+  docsUrl                String?  @map("docs_url")
+  howToGet               String?  @map("how_to_get") // onboarding steps shown in the UI
   permittedUseAttestation String? @map("permitted_use_attestation") // FCRA/DPPA/GLBA guardrail (spec §8)
   attestedById           Int?     @map("attested_by")
   attestedAt             DateTime? @map("attested_at")

@@ -87,21 +87,104 @@ async function main() {
     await prisma.appSetting.upsert({ where: { key }, update: {}, create: { key, value } });
   }
 
-  // Mock provider — active by default so dev costs $0 (spec Phase 2)
-  await prisma.providerSetting.upsert({
-    where: { code: 'MOCK' },
-    update: {},
-    create: {
+  // Provider catalog. MOCK ships active so dev costs $0 (spec Phase 2); real
+  // providers ship inactive with onboarding instructions — the Admin saves
+  // credentials + attestation on the Providers page, then activates once the
+  // adapter is implemented.
+  interface SeedProvider {
+    code: string;
+    displayName: string;
+    description: string;
+    isActive?: boolean;
+    websiteUrl?: string;
+    signupUrl?: string;
+    docsUrl?: string;
+    howToGet: string;
+    permittedUseAttestation?: string;
+  }
+  const PROVIDERS: SeedProvider[] = [
+    {
       code: 'MOCK',
       displayName: 'Mock Provider (dev)',
+      description:
+        'Deterministic synthetic data for development and training. Free, instant, and safe — every phone number is in the reserved fictional 555-01XX range.',
       isActive: true,
-      costPerSearchCents: 0,
-      dailySpendCapCents: 0,
-      cacheTtlHours: 720,
+      howToGet: 'Nothing to set up — built in. Use it for development, demos, and operator training.',
       permittedUseAttestation:
         'Development mock data. Real providers require a recorded permitted-use attestation: sales lead-generation only — never credit, employment, insurance, or tenant-screening decisions (FCRA/DPPA/GLBA).',
     },
-  });
+    {
+      code: 'ENDATO',
+      displayName: 'Endato (Enformion)',
+      description:
+        'Person search, contact enrichment and reverse phone APIs by Enformion. Popular with sales/skip-tracing shops; simple REST API with per-search pricing.',
+      websiteUrl: 'https://endato.com',
+      signupUrl: 'https://endato.com/contact-sales/',
+      docsUrl: 'https://docs.endato.com',
+      howToGet:
+        '1. Go to endato.com and request API access (self-serve trial or contact sales).\n2. Complete their permitted-use questionnaire — answer "sales & marketing / lead generation" (NOT FCRA uses).\n3. In the Endato dashboard, create an API profile: you receive an AP Name and AP Password.\n4. Paste the AP Name as API Key and AP Password as API Secret below, then Save credentials.\n5. Record the permitted-use attestation and set your negotiated cost per search.',
+    },
+    {
+      code: 'TRESTLE',
+      displayName: 'Trestle (Whitepages Pro)',
+      description:
+        'Reverse Phone, Find Person and Real Contact APIs — the former Whitepages Pro data. Strong phone intelligence: line type, carrier, activity score.',
+      websiteUrl: 'https://trestleiq.com',
+      signupUrl: 'https://trestleiq.com/free-trial/',
+      docsUrl: 'https://trestle-api.redoc.ly',
+      howToGet:
+        '1. Start a free trial at trestleiq.com (instant, no sales call).\n2. Verify your business email; the dashboard shows your API Key immediately.\n3. Paste the key below and Save credentials.\n4. Record the permitted-use attestation, set cost per search, then Activate once the adapter is implemented.',
+    },
+    {
+      code: 'IDI',
+      displayName: 'idiCORE (IDI Data)',
+      description:
+        'Enterprise-grade investigative data (idiCORE). Deepest coverage — addresses, relatives, associates — but requires business vetting and a signed use agreement.',
+      websiteUrl: 'https://www.ididata.com',
+      signupUrl: 'https://www.ididata.com/contact/',
+      docsUrl: 'https://www.ididata.com/idicore/',
+      howToGet:
+        '1. Contact IDI sales at ididata.com — enterprise onboarding only.\n2. Pass their credentialing: business verification, site visit/desk audit, signed DPPA/GLBA permitted-use agreement (choose non-FCRA sales/marketing use).\n3. Receive API credentials from your account manager.\n4. Save them below and record the attestation exactly as signed.',
+    },
+    {
+      code: 'BATCHDATA',
+      displayName: 'BatchData (BatchSkipTracing)',
+      description:
+        'Skip-tracing and property-owner contact data, popular in real-estate calling operations. Per-hit pricing and bulk endpoints.',
+      websiteUrl: 'https://batchdata.com',
+      signupUrl: 'https://batchdata.com/sign-up/',
+      docsUrl: 'https://developer.batchdata.com',
+      howToGet:
+        '1. Create an account at batchdata.com.\n2. In the developer portal, generate an API token (Bearer).\n3. Paste the token as API Key below and Save credentials.\n4. Record the attestation and per-hit cost, then Activate once the adapter is implemented.',
+    },
+    {
+      code: 'MELISSA',
+      displayName: 'Melissa Personator',
+      description:
+        'Identity verification and contact append (Personator Consumer). Good for verifying/enriching records you already hold rather than open-ended people search.',
+      websiteUrl: 'https://www.melissa.com',
+      signupUrl: 'https://www.melissa.com/user/signup',
+      docsUrl: 'https://docs.melissa.com',
+      howToGet:
+        '1. Sign up at melissa.com — free tier includes monthly credits.\n2. In the account console, copy your License Key.\n3. Paste it as API Key below and Save credentials.\n4. Record the attestation, then Activate once the adapter is implemented.',
+    },
+  ];
+  for (const p of PROVIDERS) {
+    const { code, isActive, ...fields } = p;
+    await prisma.providerSetting.upsert({
+      where: { code },
+      // keep admin-managed state (isActive, credentials, costs) on re-seed;
+      // refresh only the catalog copy so docs/instructions stay current
+      update: {
+        description: fields.description,
+        websiteUrl: fields.websiteUrl,
+        signupUrl: fields.signupUrl,
+        docsUrl: fields.docsUrl,
+        howToGet: fields.howToGet,
+      },
+      create: { code, isActive: isActive ?? false, ...fields },
+    });
+  }
 
   // Demo users (dev only — change passwords in production)
   const demoPassword = process.env.SEED_USER_PASSWORD || 'LeadTrace!Dev1';

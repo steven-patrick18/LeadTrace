@@ -8,22 +8,18 @@ import { Prisma } from '@prisma/client';
 import { AuditService } from '../common/audit.service';
 import { tryToE164 } from '../common/phone.util';
 import { PrismaService } from '../common/prisma.service';
-import { MockProvider } from '../providers/mock.provider';
-import { PersonDataProvider, PersonMatch, PersonSearchQuery } from '../providers/provider.interface';
+import { ProviderRegistry } from '../providers/provider.registry';
+import { PersonMatch, PersonSearchQuery } from '../providers/provider.interface';
 
 @Injectable()
 export class SearchService {
   private readonly logger = new Logger(SearchService.name);
-  /** Adapter registry — add new provider classes here; activation is DB config. */
-  private readonly adapters: Map<string, PersonDataProvider>;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    mock: MockProvider,
-  ) {
-    this.adapters = new Map([[mock.code, mock]]);
-  }
+    private readonly registry: ProviderRegistry,
+  ) {}
 
   /**
    * Cache-first person search (spec Phase 2: "cache-first, always").
@@ -35,7 +31,7 @@ export class SearchService {
     const searchKey = this.buildSearchKey(query);
 
     const provider = await this.activeProvider();
-    const adapter = this.adapters.get(provider.code);
+    const adapter = this.registry.get(provider.code);
     if (!adapter) {
       throw new ServiceUnavailableException(
         `Provider ${provider.code} is active in settings but has no adapter registered`,

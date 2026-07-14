@@ -7,6 +7,7 @@ import { LeadDetail } from './pages/LeadDetail';
 import { Login } from './pages/Login';
 import { Matrix } from './pages/Matrix';
 import { MyLeads } from './pages/MyLeads';
+import { Providers } from './pages/Providers';
 import { RoutingQueue } from './pages/RoutingQueue';
 import { SearchPage } from './pages/SearchPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -31,7 +32,8 @@ export default function App() {
         {can('view_api_costs') && <Nav to="/api-costs" label="API Costs" />}
         {can('manage_users') && <Nav to="/users" label="Users" />}
         {can('manage_permissions') && <Nav to="/permissions" label="Permissions" />}
-        {(can('manage_providers') || can('system_lockdown')) && <Nav to="/settings" label="Settings" />}
+        {can('manage_providers') && <Nav to="/providers" label="Providers" />}
+        {(can('manage_permissions') || can('system_lockdown')) && <Nav to="/settings" label="Settings" />}
         <div className="spacer" />
         <div className="whoami">
           {user.name}
@@ -57,6 +59,7 @@ export default function App() {
           <Route path="/api-costs" element={<ApiCosts />} />
           <Route path="/users" element={<Users />} />
           <Route path="/permissions" element={<Matrix />} />
+          <Route path="/providers" element={<Providers />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

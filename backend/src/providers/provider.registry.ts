@@ -6,6 +6,7 @@ import { MelissaProvider } from './melissa.provider';
 import { MockProvider } from './mock.provider';
 import { NumverifyProvider } from './numverify.provider';
 import { OwnServerProvider } from './own-server.provider';
+import { SearchBugProvider } from './searchbug.provider';
 import { PersonDataProvider } from './provider.interface';
 import { TrestleProvider } from './trestle.provider';
 import { TwilioLookupProvider } from './twilio-lookup.provider';
@@ -30,6 +31,7 @@ export class ProviderRegistry {
     ipqs: IpqsProvider,
     numverify: NumverifyProvider,
     endato: EndatoProvider,
+    searchbug: SearchBugProvider,
   ) {
     this.register(mock);
     this.register(engine); // free self-hosted tier
@@ -40,6 +42,7 @@ export class ProviderRegistry {
     this.register(ipqs); // easy: free 5k/mo, fraud/spam score
     this.register(numverify); // easy: free phone validation
     this.register(endato); // DEEP: name + aliases + addresses + relatives + emails
+    this.register(searchbug); // DEEP: reverse phone → name + addresses + relatives
     // IDI adapter registers here when implemented — no other change.
   }
 

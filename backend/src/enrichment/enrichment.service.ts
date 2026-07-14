@@ -16,6 +16,7 @@ import { IpqsProvider } from '../providers/ipqs.provider';
 import { MelissaProvider } from '../providers/melissa.provider';
 import { NumverifyProvider } from '../providers/numverify.provider';
 import { EndatoProvider } from '../providers/endato.provider';
+import { SearchBugProvider } from '../providers/searchbug.provider';
 import { OwnServerProvider } from '../providers/own-server.provider';
 import { TrestleProvider } from '../providers/trestle.provider';
 import { TwilioLookupProvider } from '../providers/twilio-lookup.provider';
@@ -61,6 +62,7 @@ export class EnrichmentService {
     ipqs: IpqsProvider,
     numverify: NumverifyProvider,
     endato: EndatoProvider,
+    searchbug: SearchBugProvider,
   ) {
     // Registered enrichment adapters; which one runs is DB config
     // (provider_settings.is_active). MOCK for dev, LEADTRACE_ENGINE is our
@@ -76,6 +78,7 @@ export class EnrichmentService {
       [ipqs.code, ipqs],
       [numverify.code, numverify],
       [endato.code, endato],
+      [searchbug.code, searchbug],
     ]);
     this.identityVerifier = twilio;
     this.scrub = mockDnc; // swap for a real scrub adapter when subscribed

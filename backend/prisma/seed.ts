@@ -166,6 +166,17 @@ async function main() {
         '1. Go to endato.com and request API access (self-serve trial or contact sales).\n2. Complete their permitted-use questionnaire — answer "sales & marketing / lead generation" (NOT FCRA uses).\n3. In the Endato dashboard, create an API profile: you receive an AP Name and AP Password.\n4. Paste the AP Name as API Key and AP Password as API Secret below, then Save credentials.\n5. Record the permitted-use attestation and set your negotiated cost per search.',
     },
     {
+      code: 'SEARCHBUG',
+      displayName: 'SearchBug (People Search)',
+      description:
+        'Broad-coverage reverse phone → identity: name, current + past addresses, alternate phones, emails, age and relatives. Easy self-serve signup with a prepaid balance; also offers caller-ID, DNC scrub and reassigned-number checks.',
+      websiteUrl: 'https://www.searchbug.com',
+      signupUrl: 'https://www.searchbug.com/account/signup.aspx',
+      docsUrl: 'https://www.searchbug.com/info/api/people-search-api/',
+      howToGet:
+        'Adapter IMPLEMENTED (People Search API, reverse phone). Uses GET data.searchbug.com/api/search.aspx with TYPE_API=api_ppl&F=<phone>&FORMAT=JSON.\n1. Create an account at searchbug.com and load a prepaid balance (a free sandbox test account is available).\n2. In your dashboard open API access and copy your API Key (and Account CO_CODE if shown).\n3. Paste the API Key as API Key below. If your account uses CO_CODE auth, paste the CO_CODE as API Secret (otherwise leave it blank — the Bearer key is enough).\n4. Record the permitted-use attestation (sales & marketing / lead generation, NOT FCRA/DPPA) and Activate.\nNote: the SSN/skip-trace (Professional Trace) products need a separate Restricted-Access approval from SearchBug and are NOT used by this adapter.',
+    },
+    {
       code: 'TRESTLE',
       displayName: 'Trestle (Whitepages Pro)',
       description:

@@ -39,6 +39,7 @@ import { MelissaProvider } from './providers/melissa.provider';
 import { MockProvider } from './providers/mock.provider';
 import { NumverifyProvider } from './providers/numverify.provider';
 import { OwnServerProvider } from './providers/own-server.provider';
+import { SearchBugProvider } from './providers/searchbug.provider';
 import { ProviderRegistry } from './providers/provider.registry';
 import { TrestleProvider } from './providers/trestle.provider';
 import { TwilioLookupProvider } from './providers/twilio-lookup.provider';
@@ -97,6 +98,7 @@ import { UsersController } from './users/users.controller';
     IpqsProvider,
     NumverifyProvider,
     EndatoProvider,
+    SearchBugProvider,
     ProviderRegistry,
     SearchService,
     LeadAccessService,

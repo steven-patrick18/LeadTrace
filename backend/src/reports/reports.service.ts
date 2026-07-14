@@ -1,0 +1,160 @@
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../common/prisma.service';
+
+/**
+ * Reports (spec Phase 4). Team-wide vs own-only is decided by the caller's
+ * permissions (view_reports_team / view_reports_own) — resolved from the
+ * matrix by the controller, never hard-coded to roles.
+ */
+@Injectable()
+export class ReportsService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  /** Leads by tier/status + funnel + aging. userId=null → team-wide. */
+  async dashboard(userId: number | null) {
+    const leadFilter: Prisma.LeadWhereInput = userId
+      ? { OR: [{ assignedToId: userId }, { createdById: userId }] }
+      : {};
+
+    const byStatus = await this.prisma.lead.groupBy({
+      by: ['status'],
+      where: leadFilter,
+      _count: { _all: true },
+    });
+    const byTier = await this.prisma.lead.groupBy({
+      by: ['currentTier', 'status'],
+      where: leadFilter,
+      _count: { _all: true },
+    });
+
+    // Conversion funnel (spec §5): created → reached SS → reached Closer → won,
+    // read from routing_history + closes.
+    const funnelFilter: Prisma.LeadWhereInput = userId ? { createdById: userId } : {};
+    const [created, reachedSS, reachedCloser, won] = await Promise.all([
+      this.prisma.lead.count({ where: funnelFilter }),
+      this.prisma.lead.count({
+        where: { ...funnelFilter, routingHistory: { some: { transferPoint: 'T1_TO_SS' } } },
+      }),
+      this.prisma.lead.count({
+        where: { ...funnelFilter, routingHistory: { some: { transferPoint: 'T2_TO_CLOSER' } } },
+      }),
+      this.prisma.lead.count({ where: { ...funnelFilter, status: 'CLOSED_WON' } }),
+    ]);
+
+    // Queue aging (team-wide only; own-scope callers see their raised rows)
+    const pendingRows = await this.prisma.routingQueue.findMany({
+      where: { status: 'PENDING', ...(userId ? { raisedById: userId } : {}) },
+      select: { createdAt: true, transferPoint: true },
+    });
+    const now = Date.now();
+    const waits = pendingRows.map((r) => (now - r.createdAt.getTime()) / 60000);
+
+    return {
+      scope: userId ? 'own' : 'team',
+      byStatus: Object.fromEntries(byStatus.map((r) => [r.status, r._count._all])),
+      byTier,
+      funnel: { created, reachedSS, reachedCloser, won },
+      queue: {
+        pending: pendingRows.length,
+        avgWaitMinutes: waits.length ? Math.round(waits.reduce((a, b) => a + b, 0) / waits.length) : 0,
+        maxWaitMinutes: waits.length ? Math.round(Math.max(...waits)) : 0,
+      },
+    };
+  }
+
+  /** Per-user performance. userId=null → all users (team scope). */
+  async performance(userId: number | null) {
+    const users = await this.prisma.user.findMany({
+      where: { isActive: true, ...(userId ? { id: userId } : {}) },
+      select: { id: true, name: true, role: { select: { roleCode: true, displayName: true } } },
+    });
+    const rows = [];
+    for (const u of users) {
+      const [createdCount, activeAssigned, callsLogged, transfersRaised, routedOn, closedWon, closedLost] =
+        await Promise.all([
+          this.prisma.lead.count({ where: { createdById: u.id } }),
+          this.prisma.lead.count({
+            where: { assignedToId: u.id, status: { in: ['NEW', 'IN_PROGRESS', 'PENDING_ROUTING'] } },
+          }),
+          this.prisma.activity.count({ where: { userId: u.id, type: 'CALL' } }),
+          this.prisma.routingQueue.count({ where: { raisedById: u.id } }),
+          this.prisma.routingHistory.count({ where: { toUserId: u.id } }),
+          this.prisma.activity.count({
+            where: { userId: u.id, type: 'STATUS_CHANGE', detail: { startsWith: 'Deal WON' } },
+          }),
+          this.prisma.activity.count({
+            where: { userId: u.id, type: 'STATUS_CHANGE', detail: { startsWith: 'Deal lost' } },
+          }),
+        ]);
+      rows.push({
+        user: u,
+        createdCount,
+        activeAssigned,
+        callsLogged,
+        transfersRaised,
+        leadsReceived: routedOn,
+        closedWon,
+        closedLost,
+      });
+    }
+    return rows;
+  }
+
+  /** Provider usage & cost (spec Phase 4, gated by view_api_costs). */
+  async apiCosts(days: number) {
+    const since = new Date(Date.now() - days * 86400_000);
+    const providers = await this.prisma.providerSetting.findMany();
+    const report = [];
+    for (const p of providers) {
+      const [liveCalls, cacheHits, cost] = await Promise.all([
+        this.prisma.providerUsage.count({
+          where: { providerId: p.id, cacheHit: false, createdAt: { gte: since } },
+        }),
+        this.prisma.providerUsage.count({
+          where: { providerId: p.id, cacheHit: true, createdAt: { gte: since } },
+        }),
+        this.prisma.providerUsage.aggregate({
+          where: { providerId: p.id, cacheHit: false, createdAt: { gte: since } },
+          _sum: { costCents: true },
+        }),
+      ]);
+      report.push({
+        provider: { code: p.code, displayName: p.displayName, isActive: p.isActive },
+        liveCalls,
+        cacheHits,
+        cacheHitRate: liveCalls + cacheHits > 0 ? Math.round((cacheHits / (liveCalls + cacheHits)) * 100) : 0,
+        totalCostCents: cost._sum.costCents ?? 0,
+        dailySpendCapCents: p.dailySpendCapCents,
+      });
+    }
+    return { sinceDays: days, providers: report };
+  }
+
+  /** CSV export of leads (gated by export_data). */
+  async exportLeadsCsv(): Promise<string> {
+    const leads = await this.prisma.lead.findMany({
+      orderBy: { id: 'asc' },
+      include: {
+        assignedTo: { select: { name: true } },
+        createdBy: { select: { name: true } },
+      },
+    });
+    const esc = (v: unknown) => {
+      const s = v === null || v === undefined ? '' : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = [
+      'id', 'first_name', 'last_name', 'primary_phone', 'city', 'state', 'zip',
+      'tier', 'status', 'source_provider', 'created_by', 'assigned_to', 'created_at', 'updated_at',
+    ].join(',');
+    const rows = leads.map((l) =>
+      [
+        l.id, l.firstName, l.lastName, l.primaryPhone, l.city, l.state, l.zip,
+        l.currentTier, l.status, l.sourceProvider, l.createdBy.name, l.assignedTo?.name,
+        l.createdAt.toISOString(), l.updatedAt.toISOString(),
+      ].map(esc).join(','),
+    );
+    return [header, ...rows].join('\n');
+  }
+}

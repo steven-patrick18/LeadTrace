@@ -1,0 +1,170 @@
+import { FormEvent, useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { get, post } from '../api';
+import { useAuth } from '../auth';
+
+interface Lead {
+  id: number;
+  firstName: string;
+  lastName: string;
+  primaryPhone: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  currentTier: string;
+  status: string;
+  sourceProvider: string | null;
+  createdAt: string;
+  assignedTo: { id: number; name: string } | null;
+  createdBy: { id: number; name: string };
+  phones: Array<{ id: number; phone: string; lineType: string | null; isPrimary: boolean }>;
+  activities: Array<{ id: number; type: string; detail: string; createdAt: string; user: { name: string } }>;
+  queueEntries: Array<{ id: number; transferPoint: string }>;
+}
+
+export function LeadDetail() {
+  const { id } = useParams();
+  const { user, can } = useAuth();
+  const [lead, setLead] = useState<Lead | null>(null);
+  const [error, setError] = useState('');
+  const [note, setNote] = useState('');
+  const [noteType, setNoteType] = useState<'CALL' | 'NOTE'>('CALL');
+  const [msg, setMsg] = useState('');
+
+  const load = async () => {
+    try {
+      setLead(await get<Lead>(`/leads/${id}`));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load');
+    }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+
+  if (error) return <div className="error">{error}</div>;
+  if (!lead) return <div className="muted">Loading…</div>;
+
+  const isAssignedToMe = lead.assignedTo?.id === user?.id;
+  const isOpen = !['CLOSED_WON', 'CLOSED_LOST'].includes(lead.status);
+  const isPending = lead.status === 'PENDING_ROUTING';
+
+  const act = async (fn: () => Promise<unknown>, okMsg: string) => {
+    setMsg('');
+    setError('');
+    try {
+      await fn();
+      setMsg(okMsg);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Action failed');
+    }
+  };
+
+  const logActivity = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!note.trim()) return;
+    await act(() => post(`/leads/${lead.id}/activities`, { type: noteType, detail: note }), 'Logged.');
+    setNote('');
+  };
+
+  return (
+    <div>
+      <h1>
+        #{lead.id} {lead.firstName} {lead.lastName}{' '}
+        <span className="badge tier">{lead.currentTier}</span>{' '}
+        <span className={`badge ${lead.status}`}>{lead.status}</span>
+      </h1>
+
+      <div className="grid cols2">
+        <div className="card">
+          <h2>Details</h2>
+          <p>
+            {lead.phones.map((p) => (
+              <span key={p.id} style={{ display: 'block' }}>
+                📞 {p.phone} <span className="muted">({p.lineType ?? 'unknown'}{p.isPrimary ? ', primary' : ''})</span>
+              </span>
+            ))}
+          </p>
+          <p className="muted">
+            {lead.address && <>{lead.address}<br /></>}
+            {lead.city}, {lead.state} {lead.zip}
+          </p>
+          <p className="muted">
+            Source: {lead.sourceProvider ?? 'manual'} · Created by {lead.createdBy.name} on{' '}
+            {new Date(lead.createdAt).toLocaleDateString()}
+            <br />
+            Assigned to: <strong style={{ color: 'var(--text)' }}>{lead.assignedTo?.name ?? '—'}</strong>
+          </p>
+
+          <h2 style={{ marginTop: 18 }}>Actions</h2>
+          <div className="row">
+            {can('request_transfer') && isAssignedToMe && isOpen && !isPending && lead.currentTier !== 'CLOSER' && (
+              <button onClick={() => act(() => post(`/routing/leads/${lead.id}/request-transfer`, {}), 'Transfer requested — waiting for Admin routing.')}>
+                Request Transfer ↑
+              </button>
+            )}
+            {can('close_deal') && isOpen && lead.currentTier === 'CLOSER' && isAssignedToMe && (
+              <>
+                <button className="success" onClick={() => act(() => post(`/routing/leads/${lead.id}/close`, { outcome: 'CLOSED_WON' }), 'Deal WON 🎉')}>
+                  Close Won
+                </button>
+                <button className="danger" onClick={() => act(() => post(`/routing/leads/${lead.id}/close`, { outcome: 'CLOSED_LOST' }), 'Closed lost.')}>
+                  Close Lost
+                </button>
+              </>
+            )}
+            {can('send_back') && isOpen && lead.currentTier === 'CLOSER' && isAssignedToMe && !isPending && (
+              <button className="warn" onClick={() => {
+                const reason = prompt('Why is this lead being sent back?');
+                if (reason) act(() => post(`/routing/leads/${lead.id}/send-back`, { reason }), 'Sent back to the Admin queue.');
+              }}>
+                Send Back ↓
+              </button>
+            )}
+            {can('route_leads') && !isOpen && (
+              <button className="ghost" onClick={() => {
+                const reason = prompt('Reason for reopening?');
+                if (reason) act(() => post(`/routing/leads/${lead.id}/reopen`, { reason }), 'Reopened into the routing queue.');
+              }}>
+                Reopen
+              </button>
+            )}
+          </div>
+          {isPending && (
+            <p className="muted" style={{ marginTop: 10 }}>
+              ⏳ Waiting in the Admin routing queue{lead.queueEntries[0] ? ` (${lead.queueEntries[0].transferPoint})` : ''}.
+            </p>
+          )}
+          {msg && <div className="ok">{msg}</div>}
+          {error && <div className="error">{error}</div>}
+        </div>
+
+        <div className="card">
+          <h2>Timeline</h2>
+          {can('log_activity') && (
+            <form onSubmit={logActivity} className="row" style={{ marginBottom: 14 }}>
+              <select value={noteType} onChange={(e) => setNoteType(e.target.value as 'CALL' | 'NOTE')}>
+                <option value="CALL">Call</option>
+                <option value="NOTE">Note</option>
+              </select>
+              <input style={{ flex: 1 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What happened?" />
+              <button type="submit">Log</button>
+            </form>
+          )}
+          <ul className="timeline">
+            {lead.activities.map((a) => (
+              <li key={a.id}>
+                <div>
+                  <strong>{a.type}</strong> — {a.detail}
+                </div>
+                <div className="when">
+                  {a.user.name} · {new Date(a.createdAt).toLocaleString()}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}

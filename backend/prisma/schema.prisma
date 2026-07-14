@@ -1,0 +1,332 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Roles & permissions — everything hangs off this (spec §3)
+// ─────────────────────────────────────────────────────────────
+
+model Role {
+  id          Int          @id @default(autoincrement())
+  roleCode    String       @unique @map("role_code")
+  displayName String       @map("display_name")
+  tier        Int?
+  createdAt   DateTime     @default(now()) @map("created_at")
+  permissions Permission[]
+  users       User[]
+
+  @@map("roles")
+}
+
+enum PermissionScope {
+  ALL
+  OWN
+  ASSIGNED
+  VIEW
+
+  @@map("permission_scope")
+}
+
+model Permission {
+  id            Int             @id @default(autoincrement())
+  roleId        Int             @map("role_id")
+  permissionKey String          @map("permission_key")
+  allowed       Boolean         @default(false)
+  scope         PermissionScope @default(ALL)
+  role          Role            @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionKey])
+  @@map("permissions")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  roleId       Int      @map("role_id")
+  reportsToId  Int?     @map("reports_to")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  role      Role   @relation(fields: [roleId], references: [id])
+  reportsTo User?  @relation("UserReports", fields: [reportsToId], references: [id])
+  reports   User[] @relation("UserReports")
+
+  createdLeads   Lead[]           @relation("LeadCreator")
+  assignedLeads  Lead[]           @relation("LeadAssignee")
+  activities     Activity[]
+  notifications  Notification[]
+  raisedQueue    RoutingQueue[]   @relation("QueueRaisedBy")
+  routedQueue    RoutingQueue[]   @relation("QueueRoutedBy")
+  receivedQueue  RoutingQueue[]   @relation("QueueRoutedTo")
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Leads & call chain (spec §4, §5)
+// ─────────────────────────────────────────────────────────────
+
+enum LeadTier {
+  AGENT
+  SR_AGENT
+  CLOSER
+
+  @@map("lead_tier")
+}
+
+enum LeadStatus {
+  NEW
+  PENDING_ROUTING
+  IN_PROGRESS
+  QUALIFIED
+  CLOSED_WON
+  CLOSED_LOST
+  INVALID
+
+  @@map("lead_status")
+}
+
+model Lead {
+  id              Int        @id @default(autoincrement())
+  createdById     Int        @map("created_by")
+  assignedToId    Int?       @map("assigned_to")
+  currentTier     LeadTier   @default(AGENT) @map("current_tier")
+  status          LeadStatus @default(NEW)
+  firstName       String     @map("first_name")
+  lastName        String     @map("last_name")
+  primaryPhone    String     @map("primary_phone")
+  address         String?
+  city            String?
+  state           String?
+  zip             String?
+  sourceProvider  String?    @map("source_provider")
+  rawProviderData Json?      @map("raw_provider_data")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  createdBy      User             @relation("LeadCreator", fields: [createdById], references: [id])
+  assignedTo     User?            @relation("LeadAssignee", fields: [assignedToId], references: [id])
+  phones         LeadPhone[]
+  queueEntries   RoutingQueue[]
+  routingHistory RoutingHistory[]
+  activities     Activity[]
+
+  @@index([assignedToId, status])
+  @@index([currentTier, status])
+  @@index([primaryPhone])
+  @@map("leads")
+}
+
+model LeadPhone {
+  id        Int     @id @default(autoincrement())
+  leadId    Int     @map("lead_id")
+  phone     String // E.164 — normalized on input, enforced in service layer
+  lineType  String? @map("line_type")
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([phone])
+  @@map("lead_phones")
+}
+
+enum TransferPoint {
+  T1_TO_SS
+  T2_TO_CLOSER
+  T3_SEND_BACK
+
+  @@map("transfer_point")
+}
+
+enum QueueStatus {
+  PENDING
+  ROUTED
+
+  @@map("queue_status")
+}
+
+model RoutingQueue {
+  id            Int           @id @default(autoincrement())
+  leadId        Int           @map("lead_id")
+  transferPoint TransferPoint @map("transfer_point")
+  raisedById    Int           @map("raised_by")
+  status        QueueStatus   @default(PENDING)
+  routedById    Int?          @map("routed_by")
+  routedToId    Int?          @map("routed_to")
+  agingAlertAt  DateTime?     @map("aging_alert_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  routedAt      DateTime?     @map("routed_at")
+
+  lead     Lead  @relation(fields: [leadId], references: [id])
+  raisedBy User  @relation("QueueRaisedBy", fields: [raisedById], references: [id])
+  routedBy User? @relation("QueueRoutedBy", fields: [routedById], references: [id])
+  routedTo User? @relation("QueueRoutedTo", fields: [routedToId], references: [id])
+
+  @@index([status, transferPoint])
+  @@map("routing_queue")
+}
+
+// APPEND-ONLY — UPDATE/DELETE blocked by DB trigger (see migration append_only_guards)
+model RoutingHistory {
+  id            Int           @id @default(autoincrement())
+  leadId        Int           @map("lead_id")
+  transferPoint TransferPoint @map("transfer_point")
+  fromUserId    Int?          @map("from_user")
+  toUserId      Int           @map("to_user")
+  routedById    Int           @map("routed_by")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id])
+
+  @@index([leadId])
+  @@index([createdAt])
+  @@map("routing_history")
+}
+
+enum ActivityType {
+  CALL
+  NOTE
+  STATUS_CHANGE
+  TRANSFER_REQUEST
+
+  @@map("activity_type")
+}
+
+model Activity {
+  id        Int          @id @default(autoincrement())
+  leadId    Int          @map("lead_id")
+  userId    Int          @map("user_id")
+  type      ActivityType
+  detail    String
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([leadId, createdAt])
+  @@map("activities")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Provider search & cost control (spec Phase 2, §8 NFRs)
+// ─────────────────────────────────────────────────────────────
+
+model SearchCache {
+  id        Int      @id @default(autoincrement())
+  searchKey String   @unique @map("search_key") // normalized: lowercased, sorted key=value pairs
+  provider  String
+  response  Json
+  createdAt DateTime @default(now()) @map("created_at")
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("search_cache")
+}
+
+model ProviderSetting {
+  id                     Int      @id @default(autoincrement())
+  code                   String   @unique // e.g. MOCK, ENDATO, TRESTLE
+  displayName            String   @map("display_name")
+  isActive               Boolean  @default(false) @map("is_active")
+  costPerSearchCents     Int      @default(0) @map("cost_per_search_cents")
+  dailySpendCapCents     Int      @default(0) @map("daily_spend_cap_cents") // 0 = no cap
+  cacheTtlHours          Int      @default(720) @map("cache_ttl_hours")
+  permittedUseAttestation String? @map("permitted_use_attestation") // FCRA/DPPA/GLBA guardrail (spec §8)
+  attestedById           Int?     @map("attested_by")
+  attestedAt             DateTime? @map("attested_at")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  usage ProviderUsage[]
+
+  @@map("provider_settings")
+}
+
+model ProviderUsage {
+  id         Int      @id @default(autoincrement())
+  providerId Int      @map("provider_id")
+  userId     Int?     @map("user_id")
+  searchKey  String   @map("search_key")
+  cacheHit   Boolean  @default(false) @map("cache_hit")
+  costCents  Int      @default(0) @map("cost_cents")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  provider ProviderSetting @relation(fields: [providerId], references: [id])
+
+  @@index([providerId, createdAt])
+  @@map("provider_usage")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Audit, notifications, system control (spec §7, §9)
+// ─────────────────────────────────────────────────────────────
+
+// APPEND-ONLY — UPDATE/DELETE blocked by DB trigger (see migration append_only_guards)
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?     @map("user_id")
+  action    String
+  detail    Json?
+  ip        String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([action, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_log")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  type      String
+  title     String
+  body      String?
+  leadId    Int?     @map("lead_id")
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+enum SystemStatus {
+  ACTIVE
+  LOCKED
+
+  @@map("system_status")
+}
+
+model SystemState {
+  id        Int          @id @default(1)
+  status    SystemStatus @default(ACTIVE)
+  updatedBy Int?         @map("updated_by")
+  updatedAt DateTime     @default(now()) @map("updated_at")
+
+  @@map("system_state")
+}
+
+model RecoveryKey {
+  id        Int      @id @default(autoincrement())
+  keyHash   String   @map("key_hash") // argon2 — raw key shown exactly once
+  createdBy Int      @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  isActive  Boolean  @default(true) @map("is_active")
+
+  @@map("recovery_key")
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
+}

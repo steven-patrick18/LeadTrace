@@ -187,32 +187,53 @@ function ScoreWeights() {
 
 function AppSettings() {
   const [threshold, setThreshold] = useState('');
+  const [batchMinutes, setBatchMinutes] = useState('');
+  const [requireDesk, setRequireDesk] = useState(false);
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
-    get<Record<string, string>>('/settings').then((s) => setThreshold(s.routing_aging_threshold_minutes ?? '60'));
+    get<Record<string, string>>('/settings').then((s) => {
+      setThreshold(s.routing_aging_threshold_minutes ?? '60');
+      setBatchMinutes(s.batch_session_minutes ?? '30');
+      setRequireDesk(s.require_desk_for_calls === 'true');
+    });
   }, []);
 
   const save = async () => {
-    await patch('/settings', { routingAgingThresholdMinutes: Number(threshold) });
+    await patch('/settings', {
+      routingAgingThresholdMinutes: Number(threshold),
+      batchSessionMinutes: Number(batchMinutes),
+      requireDeskForCalls: requireDesk,
+    });
     setMsg('Saved.');
     setTimeout(() => setMsg(''), 2500);
   };
 
   return (
     <div className="card">
-      <h2>Routing safeguards</h2>
+      <h2>Operations settings</h2>
       <div className="row">
         <div className="field">
           <label>Aging alert after (minutes in queue)</label>
           <input type="number" min={5} value={threshold} onChange={(e) => setThreshold(e.target.value)} style={{ width: 120 }} />
         </div>
+        <div className="field">
+          <label>Quick-session duration (minutes)</label>
+          <input type="number" min={5} max={480} value={batchMinutes} onChange={(e) => setBatchMinutes(e.target.value)} style={{ width: 120 }} />
+        </div>
+        <div className="field">
+          <label>Desk clock-in required for calls</label>
+          <select value={requireDesk ? 'yes' : 'no'} onChange={(e) => setRequireDesk(e.target.value === 'yes')}>
+            <option value="no">No (recommended with quick sessions)</option>
+            <option value="yes">Yes — strict desk discipline</option>
+          </select>
+        </div>
         <button onClick={save}>Save</button>
         {msg && <span className="ok">{msg}</span>}
       </div>
       <p className="muted" style={{ fontSize: '0.8rem' }}>
-        Queue rows pending longer than this flag every user holding <code>route_leads</code>. Tip: grant{' '}
-        <code>route_leads</code> to a second user as a backup admin.
+        Quick sessions (the ⚡ Session button) auto-log out after the duration above and return the screen to
+        the original login. Aging alerts flag queue rows for every <code>route_leads</code> holder.
       </p>
     </div>
   );

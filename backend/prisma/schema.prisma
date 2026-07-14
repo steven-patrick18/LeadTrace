@@ -49,6 +49,9 @@ model User {
   name         String
   email        String   @unique
   passwordHash String   @map("password_hash")
+  // Personal batch ID — typed into the Session box on a colleague's screen to
+  // work as yourself for a short admin-set window without a logout/login.
+  batchId      String?  @unique @map("batch_id")
   roleId       Int      @map("role_id")
   reportsToId  Int?     @map("reports_to")
   isActive     Boolean  @default(true) @map("is_active")
@@ -72,6 +75,8 @@ model User {
   blocksIssued   LeadAccessBlock[] @relation("BlockedBy")
   deskSessions   DeskSession[]     @relation("DeskUser")
   sessionsEnded  DeskSession[]     @relation("DeskEnder")
+  batchSessions  BatchSession[]    @relation("BatchUser")
+  batchInitiated BatchSession[]    @relation("BatchInitiator")
 
   @@map("users")
 }
@@ -472,6 +477,35 @@ model LeadAccessBlock {
 
   @@unique([leadId, userId])
   @@map("lead_access_blocks")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Quick batch-ID sessions (work as yourself on a colleague's screen)
+// ─────────────────────────────────────────────────────────────
+
+enum BatchSessionEnd {
+  EXPIRED // hit the admin-set time limit
+  ENDED   // ended manually from the screen it ran on
+  REVOKED // killed by the identity owner or an admin
+
+  @@map("batch_session_end")
+}
+
+model BatchSession {
+  id            Int              @id @default(autoincrement())
+  userId        Int              @map("user_id") // whose identity is active
+  initiatedById Int              @map("initiated_by") // whose login the screen had
+  sid           String           @unique // cache session key — deleting it kills the token
+  startedAt     DateTime         @default(now()) @map("started_at")
+  expiresAt     DateTime         @map("expires_at")
+  endedAt       DateTime?        @map("ended_at")
+  endReason     BatchSessionEnd? @map("end_reason")
+
+  user        User @relation("BatchUser", fields: [userId], references: [id])
+  initiatedBy User @relation("BatchInitiator", fields: [initiatedById], references: [id])
+
+  @@index([userId, endedAt])
+  @@map("batch_sessions")
 }
 
 // ─────────────────────────────────────────────────────────────

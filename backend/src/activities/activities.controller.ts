@@ -75,16 +75,21 @@ export class ActivitiesController {
           reasons: gate.reasons,
         });
       }
-      // Batch-ID discipline: calls only happen from a seat. Every call is
-      // attributed to a person AND a desk session.
+      // Desk attribution: tag the call with the caller's seat when clocked in.
+      // Whether a seat is REQUIRED is an admin setting (require_desk_for_calls,
+      // off by default — quick batch sessions must not be blocked by it).
       const session = await this.desks.activeSession(user.id);
-      if (!session) {
-        throw new ConflictException({
-          message: 'Enter your batch ID first — you must be clocked in at a desk to log calls',
-          reasons: ['No active desk session. Use the desk widget (top right) to clock in.'],
-        });
+      if (session) {
+        deskSessionId = session.id;
+      } else {
+        const required = await this.prisma.appSetting.findUnique({ where: { key: 'require_desk_for_calls' } });
+        if (required?.value === 'true') {
+          throw new ConflictException({
+            message: 'Clock in first — desk discipline is enabled, calls need a desk session',
+            reasons: ['No active desk session. Use the desk widget (top right) to clock in.'],
+          });
+        }
       }
-      deskSessionId = session.id;
     }
 
     return this.prisma.activity.create({

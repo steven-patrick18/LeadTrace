@@ -47,6 +47,7 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
 | Enrichment module checks (29) | `node backend/scripts/smoke-enrichment.mjs` (needs dev server) |
 | Fields/comments/access checks (27) | `node backend/scripts/smoke-fields.mjs` (needs dev server) |
 | Desk/batch-ID checks (16) | `node backend/scripts/smoke-desks.mjs` (needs dev server) |
+| Quick-session checks (15) | `node backend/scripts/smoke-batch-sessions.mjs` (needs dev server; uses up the demo Agent's rate-limit window) |
 | **Demo data (all areas)** | `node backend/scripts/demo-data.mjs` — leads in every status/tier, queue rows, calls, comments, fields, enrichments, DNC, desk sessions |
 | Lockdown drill | `node backend/scripts/smoke-lockdown.mjs` (needs dev server; briefly locks the system!) |
 
@@ -99,6 +100,28 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
   No feature may use it for credit, employment, insurance, or tenant-screening
   decisions (FCRA / DPPA / GLBA restricted).
 
+### Quick batch-ID sessions (mid-call takeover, no logout)
+
+The call stays live on the Agent's machine — only the LEAD moves up the chain.
+When the Sr Agent / Closer / Manager walks over to that machine:
+
+1. Every user has a personal **batch ID** (shown under ⚡ Session → "My batch
+   ID"; demo: `LT-AMY`, `LT-ANDY`, `LT-SAM`, `LT-SARA`, `LT-CARL`, `LT-MARK`,
+   `LT-ALICE`). Admin can rotate any user's ID from the Users API if it leaks.
+2. They click **⚡ Session** in the top bar and type THEIR batch ID — the
+   screen instantly works as them (their permissions, their name on every
+   update) with no logout/login.
+3. The session lasts the **admin-set duration** (Settings → "Quick-session
+   duration", default 30 min), counts down in an amber banner, and
+   **auto-logs out** — the screen returns to the original login automatically.
+   "End session" finishes early. Expiry is enforced server-side (short-lived
+   token + session TTL), not just in the browser.
+4. **Visibility**: the identity owner is notified the moment their batch ID is
+   used, sees every active session under their identity in the ⚡ Session
+   panel ("on Amy Agent's screen · until 3:41 PM"), and can **revoke** any of
+   them instantly. Admins can revoke too. All starts/ends/revokes are audited,
+   and bad batch-ID guesses are rate-limited (5 / 15 min).
+
 ### Batch-ID desk sessions (shared-seat call floor)
 
 - Everyone logs in with their **own account**; sitting down means typing the
@@ -109,9 +132,9 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
   old session.
 - **Force complete**: an admin can end any open session from the Desk Floor
   page (`manage_desks`; Manager has VIEW — sees the floor, can't manage it).
-- **Call discipline**: logging a CALL requires an active desk session, and the
-  call is stored with that session — so every call is attributed to a person
-  AND a seat, even when seats rotate. Notes work without a seat.
+- **Call attribution**: calls are tagged with the caller's desk session when
+  clocked in. Requiring a seat for calls is an admin setting
+  (`require_desk_for_calls`, off by default so quick sessions flow freely).
 - Seeded desks: `DESK-01` … `DESK-06`; admins add more on the Desk Floor page.
 
 ### Custom fields, comments, per-lead access

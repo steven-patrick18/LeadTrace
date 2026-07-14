@@ -2,6 +2,7 @@ import { Navigate, NavLink, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth';
 import { Bell } from './components/Bell';
 import { DeskWidget } from './components/DeskWidget';
+import { SessionSwitch } from './components/SessionSwitch';
 import { DeskFloor } from './pages/DeskFloor';
 import { ApiCosts } from './pages/ApiCosts';
 import { Dashboard } from './pages/Dashboard';
@@ -52,6 +53,7 @@ export default function App() {
       </nav>
       <main className="main">
         <div className="topbar">
+          <SessionSwitch />
           <DeskWidget />
           <Bell />
         </div>

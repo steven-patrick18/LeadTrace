@@ -96,6 +96,8 @@ async function main() {
     search_cache_ttl_hours: '720',
     enrichment_daily_cap_cents: '2500', // $25/day — paid enrichment pauses on breach
     enrichment_cache_ttl_hours: '720', // 30 days — re-enrich within TTL is free
+    batch_session_minutes: '30', // quick-session duration; auto-logout after
+    require_desk_for_calls: 'false', // optional discipline: calls need a desk clock-in
   };
   for (const [key, value] of Object.entries(settings)) {
     await prisma.appSetting.upsert({ where: { key }, update: {}, create: { key, value } });
@@ -218,19 +220,19 @@ async function main() {
   const demoPassword = process.env.SEED_USER_PASSWORD || 'LeadTrace!Dev1';
   const hash = await argon2.hash(demoPassword);
   const demoUsers = [
-    { name: 'Alice Admin', email: 'admin@leadtrace.local', roleCode: 'ADMIN' },
-    { name: 'Mark Manager', email: 'manager@leadtrace.local', roleCode: 'MANAGER' },
-    { name: 'Amy Agent', email: 'agent@leadtrace.local', roleCode: 'AGENT' },
-    { name: 'Andy Agent', email: 'agent2@leadtrace.local', roleCode: 'AGENT' },
-    { name: 'Sam Senior', email: 'sragent@leadtrace.local', roleCode: 'SR_AGENT' },
-    { name: 'Sara Senior', email: 'sragent2@leadtrace.local', roleCode: 'SR_AGENT' },
-    { name: 'Carl Closer', email: 'closer@leadtrace.local', roleCode: 'CLOSER' },
+    { name: 'Alice Admin', email: 'admin@leadtrace.local', roleCode: 'ADMIN', batchId: 'LT-ALICE' },
+    { name: 'Mark Manager', email: 'manager@leadtrace.local', roleCode: 'MANAGER', batchId: 'LT-MARK' },
+    { name: 'Amy Agent', email: 'agent@leadtrace.local', roleCode: 'AGENT', batchId: 'LT-AMY' },
+    { name: 'Andy Agent', email: 'agent2@leadtrace.local', roleCode: 'AGENT', batchId: 'LT-ANDY' },
+    { name: 'Sam Senior', email: 'sragent@leadtrace.local', roleCode: 'SR_AGENT', batchId: 'LT-SAM' },
+    { name: 'Sara Senior', email: 'sragent2@leadtrace.local', roleCode: 'SR_AGENT', batchId: 'LT-SARA' },
+    { name: 'Carl Closer', email: 'closer@leadtrace.local', roleCode: 'CLOSER', batchId: 'LT-CARL' },
   ];
   for (const u of demoUsers) {
     await prisma.user.upsert({
       where: { email: u.email },
-      update: {},
-      create: { name: u.name, email: u.email, passwordHash: hash, roleId: roleIds[u.roleCode] },
+      update: { batchId: u.batchId },
+      create: { name: u.name, email: u.email, passwordHash: hash, roleId: roleIds[u.roleCode], batchId: u.batchId },
     });
   }
 

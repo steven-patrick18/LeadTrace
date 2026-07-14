@@ -40,18 +40,55 @@ export class UsersController {
     private readonly audit: AuditService,
   ) {}
 
-  /** manage_users with scope VIEW (Manager default) may list but not mutate. */
+  /** manage_users with scope VIEW (Manager default) may list but not mutate.
+   *  Batch IDs are quasi-credentials: only full (non-VIEW) managers see them. */
   @RequirePermission('manage_users')
   @Get()
-  list() {
-    return this.prisma.user.findMany({
+  async list(@CurrentUser() user: AuthUser) {
+    const rows = await this.prisma.user.findMany({
       orderBy: { id: 'asc' },
       select: {
-        id: true, name: true, email: true, isActive: true, createdAt: true,
+        id: true, name: true, email: true, isActive: true, createdAt: true, batchId: true,
         role: { select: { id: true, roleCode: true, displayName: true, tier: true } },
         reportsTo: { select: { id: true, name: true } },
       },
     });
+    if (user.permissionScope === 'VIEW') {
+      return rows.map((r) => ({ ...r, batchId: r.batchId ? '••••••' : null }));
+    }
+    return rows;
+  }
+
+  /** Everyone can see their OWN batch ID ("everyone gets their id"). */
+  @RequirePermission('view_own_leads')
+  @Get('my-batch-id')
+  async myBatchId(@CurrentUser() user: AuthUser) {
+    const me = await this.prisma.user.findUnique({ where: { id: user.id }, select: { batchId: true } });
+    return { batchId: me?.batchId ?? null };
+  }
+
+  /** Rotate a user's batch ID (e.g. if it leaked). Admin-only (write scope). */
+  @RequirePermission('manage_users')
+  @Post(':id/regenerate-batch-id')
+  async regenerateBatchId(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Ip() ip: string,
+  ) {
+    this.assertWriteScope(user);
+    const ALPHABET = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
+    let batchId = '';
+    for (let tries = 0; tries < 10; tries++) {
+      batchId = 'LT-' + Array.from({ length: 6 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join('');
+      if (!(await this.prisma.user.findUnique({ where: { batchId } }))) break;
+    }
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: { batchId },
+      select: { id: true, name: true, batchId: true },
+    });
+    await this.audit.log({ userId: user.id, action: 'BATCH_ID_REGENERATED', ip, detail: { targetUserId: id } });
+    return updated;
   }
 
   @RequirePermission('manage_users')

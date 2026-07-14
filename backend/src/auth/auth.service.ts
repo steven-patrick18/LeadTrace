@@ -1,11 +1,18 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { randomUUID } from 'crypto';
 import { AuditService } from '../common/audit.service';
 import { CacheService } from '../common/cache.service';
+import { AuthUser } from '../common/decorators';
 import { PrismaService } from '../common/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 interface TokenPayload {
   sub: number;
@@ -26,6 +33,7 @@ export class AuthService {
     private readonly cache: CacheService,
     private readonly audit: AuditService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {
     this.accessTtl = Number(config.get('JWT_ACCESS_TTL') ?? 900);
     this.refreshTtl = Number(config.get('JWT_REFRESH_TTL') ?? 604800);
@@ -101,6 +109,130 @@ export class AuthService {
       roleCode: user.role.roleCode,
       sessionId: payload.sid,
     };
+  }
+
+  // ── Quick batch-ID sessions ────────────────────────────────
+  // The call stays live on a colleague's machine; the Sr Agent / Closer /
+  // Manager types THEIR batch ID into the Session box and works as themselves
+  // for a short admin-set window — no logout/login. The token has no refresh
+  // and its cache entry carries the same TTL, so expiry is enforced
+  // server-side. The identity owner is notified and can revoke from anywhere.
+
+  async startBatchSession(initiator: AuthUser, batchId: string, ip?: string) {
+    const attempts = await this.cache.incrWithTtl(`batch:attempts:${initiator.id}`, 15 * 60);
+    if (attempts > 5) {
+      throw new ForbiddenException('Too many batch ID attempts — wait 15 minutes');
+    }
+
+    const target = await this.prisma.user.findUnique({
+      where: { batchId: batchId.trim().toUpperCase() },
+      include: { role: true },
+    });
+    if (!target || !target.isActive) {
+      await this.audit.log({
+        userId: initiator.id,
+        action: 'BATCH_SESSION_FAILED',
+        ip,
+        detail: { batchIdTried: batchId.slice(0, 3) + '***' },
+      });
+      throw new UnauthorizedException('Invalid batch ID');
+    }
+    if (target.id === initiator.id) {
+      throw new ForbiddenException('You are already logged in as yourself');
+    }
+
+    const minutes = Number(
+      (await this.prisma.appSetting.findUnique({ where: { key: 'batch_session_minutes' } }))?.value ?? 30,
+    );
+    const ttlSeconds = minutes * 60;
+    const sid = randomUUID();
+    await this.cache.setJson(
+      this.sessionKey(target.id, sid),
+      { batch: true, initiatedBy: initiator.id, startedAt: new Date().toISOString() },
+      ttlSeconds,
+    );
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+    const row = await this.prisma.batchSession.create({
+      data: { userId: target.id, initiatedById: initiator.id, sid, expiresAt },
+    });
+    const accessToken = await this.jwt.signAsync(
+      { sub: target.id, sid, typ: 'access' } satisfies TokenPayload,
+      { secret: this.config.get('JWT_ACCESS_SECRET'), expiresIn: ttlSeconds },
+    );
+
+    await this.notifications.notify(
+      [target.id],
+      {
+        type: 'BATCH_SESSION',
+        title: `Your batch ID started a ${minutes}-minute session on ${initiator.name}'s screen`,
+      },
+    );
+    await this.audit.log({
+      userId: initiator.id,
+      action: 'BATCH_SESSION_STARTED',
+      ip,
+      detail: { sessionId: row.id, asUserId: target.id, asUserName: target.name, minutes },
+    });
+
+    return {
+      accessToken,
+      expiresAt,
+      minutes,
+      sessionId: row.id,
+      user: this.publicUser(target),
+    };
+  }
+
+  /** Ended from the screen it runs on ("End session" button / auto-expiry). */
+  async endBatchSession(user: AuthUser, ip?: string) {
+    const row = await this.prisma.batchSession.findUnique({ where: { sid: user.sessionId } });
+    if (!row || row.endedAt) return { ok: true }; // not a batch session or already closed
+    await this.prisma.batchSession.update({
+      where: { id: row.id },
+      data: { endedAt: new Date(), endReason: row.expiresAt < new Date() ? 'EXPIRED' : 'ENDED' },
+    });
+    await this.cache.del(this.sessionKey(row.userId, row.sid));
+    await this.audit.log({ userId: user.id, action: 'BATCH_SESSION_ENDED', ip, detail: { sessionId: row.id } });
+    return { ok: true };
+  }
+
+  /** "Active session on their panel": sessions currently running under MY identity. */
+  async myBatchSessions(userId: number) {
+    const rows = await this.prisma.batchSession.findMany({
+      where: { userId, endedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { startedAt: 'desc' },
+      include: { initiatedBy: { select: { id: true, name: true } } },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      startedAt: r.startedAt,
+      expiresAt: r.expiresAt,
+      onScreenOf: r.initiatedBy,
+      isCurrent: false,
+    }));
+  }
+
+  /** Owner (or a user-manager) kills a session running under an identity. */
+  async revokeBatchSession(actor: AuthUser, sessionId: number, canManageUsers: boolean, ip?: string) {
+    const row = await this.prisma.batchSession.findUnique({ where: { id: sessionId } });
+    if (!row) throw new NotFoundException('Session not found');
+    if (row.userId !== actor.id && !canManageUsers) {
+      throw new ForbiddenException('Only the identity owner or an admin can revoke this session');
+    }
+    if (!row.endedAt) {
+      await this.prisma.batchSession.update({
+        where: { id: sessionId },
+        data: { endedAt: new Date(), endReason: 'REVOKED' },
+      });
+      await this.cache.del(this.sessionKey(row.userId, row.sid));
+    }
+    await this.audit.log({
+      userId: actor.id,
+      action: 'BATCH_SESSION_REVOKED',
+      ip,
+      detail: { sessionId, identityUserId: row.userId },
+    });
+    return { ok: true };
   }
 
   private async issueTokens(userId: number, sid: string) {

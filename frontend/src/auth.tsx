@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { get, hasSession, post, refreshSession, setTokens } from './api';
+import { batchInfo, endBatchMode, get, hasSession, inBatchMode, post, refreshSession, setTokens } from './api';
 
 export interface User {
   id: number;
@@ -42,6 +42,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       try {
+        // A quick batch session survives page reloads until it expires.
+        if (inBatchMode()) {
+          const info = batchInfo();
+          if (info && new Date(info.expiresAt).getTime() > Date.now()) {
+            setPerms(await get<PermMap>('/permissions/me'));
+            setUser(info.user);
+            return;
+          }
+          await endBatchMode(); // expired → fall through to the original login
+        }
         const data = await refreshSession();
         if (data) {
           setPerms(await get<PermMap>('/permissions/me'));

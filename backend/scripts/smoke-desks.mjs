@@ -35,13 +35,17 @@ await api(closer.token, 'POST', '/desks/clock-out');
 let r = await api(agent.token, 'POST', '/desks/clock-in', { batchCode: 'DESK-NOPE' });
 assert(r.status === 400, 'unknown batch ID rejected');
 
-// Call without a desk session is refused
+// Desk discipline is an OPTIONAL setting (off by default, so quick sessions
+// aren't blocked). Turn it on for the strict-gate assertions, restore after.
+await api(admin.token, 'PATCH', '/settings', { requireDeskForCalls: true });
+
+// With discipline ON: call without a desk session is refused
 r = await api(agent.token, 'POST', '/leads', {
   firstName: 'Desk', lastName: 'Gate', phones: [{ number: `+1602555${suffix.slice(0, 3)}2` }], force: true,
 });
 const leadId = r.json.id;
 r = await api(agent.token, 'POST', `/leads/${leadId}/activities`, { type: 'CALL', detail: 'no seat!' });
-assert(r.status === 409 && /batch/i.test(r.json.message), 'CALL refused without an active desk session');
+assert(r.status === 409 && /clock in|desk/i.test(r.json.message), 'CALL refused without a desk session (discipline on)');
 r = await api(agent.token, 'POST', `/leads/${leadId}/activities`, { type: 'NOTE', detail: 'notes are fine anywhere' });
 assert(r.status === 201, 'NOTE allowed without a desk session');
 
@@ -80,7 +84,8 @@ assert(r.status === 201 || r.status === 200, 'admin force-completes the session'
 r = await api(closer.token, 'GET', '/desks/me');
 assert(r.json.clockedIn === false, 'closer session ended by force-complete');
 
-// Restore the demo floor state
+// Restore the demo floor state + default settings (discipline off)
+await api(admin.token, 'PATCH', '/settings', { requireDeskForCalls: false });
 await api(agent.token, 'POST', '/desks/clock-in', { batchCode: 'DESK-01' });
 await api(closer.token, 'POST', '/desks/clock-in', { batchCode: 'DESK-05' });
 

@@ -15,6 +15,7 @@ interface LeadRow {
   updatedAt: string;
   assignedTo: { id: number; name: string } | null;
   createdBy: { id: number; name: string };
+  workStatus: { id: number; label: string } | null;
 }
 
 export function MyLeads() {
@@ -117,7 +118,10 @@ export function MyLeads() {
                 <td>{l.primaryPhone}</td>
                 <td className="muted">{l.city ? `${l.city}, ${l.state}` : '—'}</td>
                 <td><span className="badge tier">{l.currentTier}</span></td>
-                <td><span className={`badge ${l.status}`}>{l.status}</span></td>
+                <td>
+                  <span className={`badge ${l.status}`}>{l.status}</span>
+                  {l.workStatus && <div className="muted" style={{ fontSize: '0.72rem', marginTop: 2 }}>{l.workStatus.label}</div>}
+                </td>
                 <td className="muted">{l.assignedTo?.name ?? '—'}</td>
                 <td className="muted">{new Date(l.updatedAt).toLocaleDateString()}</td>
               </tr>

@@ -96,7 +96,7 @@ export class RoutingService {
       throw new BadRequestException('Deals close at the Closer tier');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.lead.update({ where: { id: leadId }, data: { status: outcome } });
       await tx.activity.create({
         data: {
@@ -109,6 +109,11 @@ export class RoutingService {
       await this.audit.log({ userId: user.id, action: 'LEAD_CLOSED', ip, detail: { leadId, outcome }, tx });
       return updated;
     });
+    await this.notifications.notifyLeadWatchers(leadId, user.id, {
+      type: 'LEAD_CLOSED',
+      title: `${outcome === 'CLOSED_WON' ? '🏆' : '❌'} ${user.name} closed lead #${leadId} — ${outcome === 'CLOSED_WON' ? 'WON' : 'lost'}${note ? `: ${note.slice(0, 80)}` : ''}`,
+    });
+    return result;
   }
 
   /** Closer sends the lead back down — via the Admin queue, per confirmed decision. */
@@ -135,6 +140,10 @@ export class RoutingService {
     });
 
     await this.notifyRouters(leadId, `Lead #${leadId} was sent back and needs re-routing (T3)`);
+    await this.notifications.notifyLeadWatchers(leadId, user.id, {
+      type: 'LEAD_SENT_BACK',
+      title: `↩️ ${user.name} sent lead #${leadId} back: ${reason.slice(0, 100)}`,
+    });
     return result;
   }
 
@@ -226,10 +235,11 @@ export class RoutingService {
 
       const fromUserId = row.lead.assignedToId;
 
-      // THE single sanctioned mutation of assigned_to / current_tier (spec §4.1)
+      // THE single sanctioned mutation of assigned_to / current_tier (spec §4.1).
+      // workStatus resets — the new tier has its own status list.
       const lead = await tx.lead.update({
         where: { id: row.leadId },
-        data: { assignedToId: target.id, currentTier: targetTier, status: 'IN_PROGRESS' },
+        data: { assignedToId: target.id, currentTier: targetTier, status: 'IN_PROGRESS', workStatusId: null },
       });
 
       await tx.routingQueue.update({

@@ -120,11 +120,13 @@ model Lead {
   zip             String?
   sourceProvider  String?    @map("source_provider")
   rawProviderData Json?      @map("raw_provider_data")
+  workStatusId    Int?       @map("work_status_id") // tier-specific disposition; reset on routing
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
 
   createdBy      User             @relation("LeadCreator", fields: [createdById], references: [id])
   assignedTo     User?            @relation("LeadAssignee", fields: [assignedToId], references: [id])
+  workStatus     TierStatus?      @relation(fields: [workStatusId], references: [id])
   phones         LeadPhone[]
   queueEntries   RoutingQueue[]
   routingHistory RoutingHistory[]
@@ -256,6 +258,7 @@ model ProviderSetting {
   isActive               Boolean  @default(false) @map("is_active")
   costPerSearchCents     Int      @default(0) @map("cost_per_search_cents")
   dailySpendCapCents     Int      @default(0) @map("daily_spend_cap_cents") // 0 = no cap
+  dailyRequestLimit      Int      @default(0) @map("daily_request_limit") // max live API calls/day, 0 = unlimited
   cacheTtlHours          Int      @default(720) @map("cache_ttl_hours")
   // Credentials live server-side ONLY — never returned by the API (spec §8 NFR:
   // provider keys never reach the browser). GET exposes hasCredentials/last4.
@@ -411,6 +414,24 @@ enum CustomFieldType {
   DROPDOWN
 
   @@map("custom_field_type")
+}
+
+// Admin-defined WORK statuses, one list per tier (Agent / Sr Agent / Closer).
+// These are dispositions the assigned user sets while working the lead —
+// separate from the pipeline status (NEW/PENDING_ROUTING/…), which only the
+// routing engine may change (spec §4 invariant 1).
+model TierStatus {
+  id        Int      @id @default(autoincrement())
+  tier      LeadTier
+  label     String
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  leads Lead[]
+
+  @@unique([tier, label])
+  @@map("tier_statuses")
 }
 
 // Admin-defined process fields ("name as per process they ask and fill").

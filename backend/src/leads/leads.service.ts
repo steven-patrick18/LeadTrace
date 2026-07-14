@@ -10,6 +10,7 @@ import { AuditService } from '../common/audit.service';
 import { AuthUser } from '../common/decorators';
 import { toE164 } from '../common/phone.util';
 import { PrismaService } from '../common/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { LeadAccessService } from './lead-access.service';
 
 export interface CreateLeadInput {
@@ -32,6 +33,7 @@ export class LeadsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: LeadAccessService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -161,6 +163,7 @@ export class LeadsService {
         include: {
           assignedTo: { select: { id: true, name: true } },
           createdBy: { select: { id: true, name: true } },
+          workStatus: { select: { id: true, label: true } },
         },
       }),
     ]);
@@ -184,6 +187,7 @@ export class LeadsService {
         routingHistory: { orderBy: { createdAt: 'asc' } },
         queueEntries: { where: { status: 'PENDING' } },
         customValues: { include: { field: true } },
+        workStatus: true,
       },
     });
     if (!lead) throw new NotFoundException('Lead not found');
@@ -251,12 +255,19 @@ export class LeadsService {
         },
       });
     });
+    const changedFields = Object.keys(data).filter((k) => data[k as keyof typeof data] !== undefined);
     await this.audit.log({
       userId: user.id,
       action: 'LEAD_UPDATED',
       ip,
-      detail: { leadId: id, fields: Object.keys(data).filter((k) => data[k as keyof typeof data] !== undefined) },
+      detail: { leadId: id, fields: changedFields },
     });
+    if (changedFields.length) {
+      await this.notifications.notifyLeadWatchers(id, user.id, {
+        type: 'LEAD_UPDATED',
+        title: `✏️ ${user.name} updated lead #${id} (${updated.firstName} ${updated.lastName}): ${changedFields.join(', ')}`,
+      });
+    }
     return updated;
   }
 }

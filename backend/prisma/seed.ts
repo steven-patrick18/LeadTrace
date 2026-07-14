@@ -247,6 +247,22 @@ async function main() {
     });
   }
 
+  // Default per-tier work-status lists — the Admin owns them after first run
+  const TIER_STATUSES: Record<string, string[]> = {
+    AGENT: ['Not contacted', 'No answer', 'Callback scheduled', 'Contacted — interested', 'Wrong number'],
+    SR_AGENT: ['Warming up', 'Callback scheduled', 'Qualified — ready for closer', 'Not ready yet'],
+    CLOSER: ['Final call scheduled', 'Negotiating', 'Contract sent', 'Post-sale processing'],
+  };
+  for (const [tier, labels] of Object.entries(TIER_STATUSES)) {
+    for (let i = 0; i < labels.length; i++) {
+      await prisma.tierStatus.upsert({
+        where: { tier_label: { tier: tier as 'AGENT' | 'SR_AGENT' | 'CLOSER', label: labels[i] } },
+        update: {},
+        create: { tier: tier as 'AGENT' | 'SR_AGENT' | 'CLOSER', label: labels[i], sortOrder: i },
+      });
+    }
+  }
+
   // Desks — the batch IDs people type when they sit down
   for (let i = 1; i <= 6; i++) {
     const code = `DESK-0${i}`;

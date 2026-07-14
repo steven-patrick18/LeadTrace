@@ -11,6 +11,7 @@ import { LeadDetail } from './pages/LeadDetail';
 import { Login } from './pages/Login';
 import { Matrix } from './pages/Matrix';
 import { MyLeads } from './pages/MyLeads';
+import { ProviderDetail } from './pages/ProviderDetail';
 import { Providers } from './pages/Providers';
 import { Reports } from './pages/Reports';
 import { RoutingQueue } from './pages/RoutingQueue';
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="/users/:id" element={<UserDetail />} />
           <Route path="/permissions" element={<Matrix />} />
           <Route path="/providers" element={<Providers />} />
+          <Route path="/providers/:id" element={<ProviderDetail />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

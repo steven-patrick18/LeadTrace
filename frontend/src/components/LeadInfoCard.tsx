@@ -19,12 +19,16 @@ interface LeadInfo {
   state: string | null;
   zip: string | null;
   sourceProvider: string | null;
+  currentTier: string;
   createdAt: string;
   assignedTo: { id: number; name: string } | null;
   createdBy: { id: number; name: string };
   phones: Array<{ id: number; phone: string; lineType: string | null; isPrimary: boolean }>;
   customValues: Array<{ fieldId: number; value: string }>;
+  workStatus: { id: number; label: string } | null;
 }
+
+interface TierStatus { id: number; label: string }
 
 /**
  * One card for everything about the lead: contact details AND the admin-defined
@@ -39,6 +43,7 @@ export function LeadInfoCard({ lead, onSaved, children }: { lead: LeadInfo; onSa
   const canAddFields = can('manage_custom_fields');
 
   const [defs, setDefs] = useState<FieldDef[]>([]);
+  const [tierStatuses, setTierStatuses] = useState<TierStatus[]>([]);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -47,6 +52,22 @@ export function LeadInfoCard({ lead, onSaved, children }: { lead: LeadInfo; onSa
   useEffect(() => {
     get<FieldDef[]>('/custom-fields').then(setDefs).catch(() => setDefs([]));
   }, []);
+  useEffect(() => {
+    get<Record<string, TierStatus[]>>('/tier-statuses')
+      .then((r) => setTierStatuses(r[lead.currentTier] ?? []))
+      .catch(() => setTierStatuses([]));
+  }, [lead.currentTier]);
+
+  /** Tier-specific work status — applies instantly, logged on the timeline. */
+  const setWorkStatus = async (value: string) => {
+    try {
+      await api('PUT', `/leads/${lead.id}/work-status`, { statusId: value ? Number(value) : null });
+      flash(value ? 'Status updated.' : 'Status cleared.');
+      onSaved();
+    } catch (err) {
+      fail(err);
+    }
+  };
 
   const flash = (m: string) => {
     setMsg(m);
@@ -125,6 +146,22 @@ export function LeadInfoCard({ lead, onSaved, children }: { lead: LeadInfo; onSa
 
       <table style={{ marginTop: 10 }}>
         <tbody>
+          {(tierStatuses.length > 0 || lead.workStatus) &&
+            row(
+              `Status (${lead.currentTier.replace('_', ' ')} list)`,
+              canEdit ? (
+                <select value={lead.workStatus?.id ?? ''} onChange={(e) => setWorkStatus(e.target.value)}>
+                  <option value="">— no status —</option>
+                  {tierStatuses.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                  {lead.workStatus && !tierStatuses.some((s) => s.id === lead.workStatus!.id) && (
+                    <option value={lead.workStatus.id}>{lead.workStatus.label}</option>
+                  )}
+                </select>
+              ) : (
+                <span>{lead.workStatus?.label ?? <span className="muted">—</span>}</span>
+              ),
+              <span className="muted" style={{ fontSize: '0.68rem' }}>saves instantly</span>,
+            )}
           {BUILTINS.map((b) =>
             row(
               b.label,

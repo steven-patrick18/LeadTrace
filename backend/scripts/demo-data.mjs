@@ -186,5 +186,26 @@ for (const { id, owner } of leadIds.slice(6, 9)) {
 }
 log('intro calls + notes logged from desks');
 
+// ── Work statuses: each assignee sets one from their tier's list ─────
+const statusLists = (await api(admin.token, 'GET', '/tier-statuses')).json;
+const allLeads = (await api(admin.token, 'GET', '/leads?scope=all&pageSize=100')).json.items;
+const tokenByUserId = {
+  [agent.user.id]: agent.token, [agent2.user.id]: agent2.token,
+  [ss.user.id]: ss.token, [ss2.user.id]: ss2.token, [closer.user.id]: closer.token,
+};
+let statusesSet = 0;
+for (const [i, l] of allLeads.entries()) {
+  if (l.workStatus || !l.assignedTo) continue;
+  if (['CLOSED_WON', 'CLOSED_LOST', 'PENDING_ROUTING'].includes(l.status) && l.status !== 'CLOSED_WON') continue;
+  const token = tokenByUserId[l.assignedTo.id];
+  const list = statusLists[l.currentTier] ?? [];
+  if (!token || !list.length) continue;
+  const pick = list[i % list.length];
+  const res = await api(token, 'PUT', `/leads/${l.id}/work-status`, { statusId: pick.id });
+  if (res.status === 200) statusesSet++;
+  if (statusesSet >= 10) break;
+}
+log(`work statuses set on ${statusesSet} leads`);
+
 console.log('\nDemo data complete. Log in as any user to explore:');
 console.log('  admin@ manager@ agent@ agent2@ sragent@ sragent2@ closer@leadtrace.local /', PASS);

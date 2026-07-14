@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { get, patch, post } from '../api';
+import { api, get, patch, post } from '../api';
 import { useAuth } from '../auth';
 
 export function SettingsPage() {
@@ -8,6 +8,7 @@ export function SettingsPage() {
     <div>
       <h1>Settings</h1>
       {can('manage_custom_fields') && <CustomFieldDefs />}
+      {can('manage_custom_fields') && <TierStatusManager />}
       {can('manage_permissions') && <AppSettings />}
       {can('edit_score_weights') && <ScoreWeights />}
       {can('system_lockdown') && <Lockdown />}
@@ -93,7 +94,7 @@ function CustomFieldDefs() {
         )}
         <button type="submit">+ Add field</button>
       </form>
-      <table style={{ maxWidth: 720 }}>
+      <table style={{ maxWidth: 780 }}>
         <thead>
           <tr><th>Field</th><th>Type</th><th>Options</th><th>Status</th><th></th></tr>
         </thead>
@@ -104,12 +105,101 @@ function CustomFieldDefs() {
               <td><span className="badge tier">{f.fieldType}</span></td>
               <td className="muted">{f.options?.join(', ') ?? '—'}</td>
               <td>{f.isActive ? <span className="badge CLOSED_WON">active</span> : <span className="badge INVALID">hidden</span>}</td>
-              <td><button className="ghost sm" onClick={() => toggle(f)}>{f.isActive ? 'Deactivate' : 'Activate'}</button></td>
+              <td style={{ whiteSpace: 'nowrap' }}>
+                <button className="ghost sm" onClick={async () => {
+                  const label = prompt('Rename field:', f.label);
+                  if (label && label !== f.label) { await patch(`/custom-fields/${f.id}`, { label }); await load(); }
+                }}>Rename</button>{' '}
+                <button className="ghost sm" onClick={() => toggle(f)}>{f.isActive ? 'Deactivate' : 'Activate'}</button>{' '}
+                <button className="danger sm" onClick={async () => {
+                  if (!confirm(`Delete field "${f.label}"? Only possible while no lead has a value in it.`)) return;
+                  try { await api('DELETE', `/custom-fields/${f.id}`); setMsg('Field deleted.'); await load(); }
+                  catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+                }}>Delete</button>
+              </td>
             </tr>
           ))}
           {fields.length === 0 && <tr><td colSpan={5} className="muted">No custom fields yet.</td></tr>}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+interface TierStatusRow {
+  id: number;
+  tier: 'AGENT' | 'SR_AGENT' | 'CLOSER';
+  label: string;
+  isActive: boolean;
+  _count: { leads: number };
+}
+
+/** Admin-owned per-tier work-status lists: add, rename, deactivate, delete. */
+function TierStatusManager() {
+  const [rows, setRows] = useState<TierStatusRow[]>([]);
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+
+  const load = async () => setRows(await get<TierStatusRow[]>('/tier-statuses/all'));
+  useEffect(() => { load(); }, []);
+
+  const act = async (fn: () => Promise<unknown>, okMsg: string) => {
+    setError(''); setMsg('');
+    try { await fn(); setMsg(okMsg); await load(); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+  };
+
+  const TIERS: Array<{ key: TierStatusRow['tier']; title: string }> = [
+    { key: 'AGENT', title: 'Agent statuses' },
+    { key: 'SR_AGENT', title: 'Sr Agent statuses' },
+    { key: 'CLOSER', title: 'Closer statuses' },
+  ];
+
+  return (
+    <div className="card">
+      <h2>Work-status lists (per tier)</h2>
+      <p className="muted" style={{ fontSize: '0.8rem' }}>
+        Each tier works from its own status list; the assigned user picks from the list of the lead's current
+        tier. Statuses reset when a lead is routed to the next tier. Renames apply everywhere; delete only works
+        while no lead uses the status (deactivate otherwise).
+      </p>
+      {msg && <div className="ok">{msg}</div>}
+      {error && <div className="error">{error}</div>}
+      <div className="grid cols3">
+        {TIERS.map(({ key, title }) => (
+          <div key={key}>
+            <h2 style={{ fontSize: '0.9rem' }}>{title}</h2>
+            {rows.filter((r) => r.tier === key).map((s) => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: '0.85rem', opacity: s.isActive ? 1 : 0.45 }}>
+                <span style={{ flex: 1 }}>{s.label} {s._count.leads > 0 && <span className="muted">({s._count.leads})</span>}</span>
+                <button className="ghost sm" title="Rename" onClick={() => {
+                  const label = prompt('Rename status:', s.label);
+                  if (label && label !== s.label) act(() => patch(`/tier-statuses/${s.id}`, { label }), 'Renamed.');
+                }}>✎</button>
+                <button className="ghost sm" title={s.isActive ? 'Deactivate' : 'Activate'} onClick={() => act(() => patch(`/tier-statuses/${s.id}`, { isActive: !s.isActive }), s.isActive ? 'Hidden.' : 'Restored.')}>
+                  {s.isActive ? '◌' : '●'}
+                </button>
+                <button className="danger sm" title="Delete" onClick={() => {
+                  if (confirm(`Delete "${s.label}"?`)) act(() => api('DELETE', `/tier-statuses/${s.id}`), 'Deleted.');
+                }}>✕</button>
+              </div>
+            ))}
+            <div className="row" style={{ marginTop: 8 }}>
+              <input
+                placeholder="New status…"
+                value={inputs[key] ?? ''}
+                onChange={(e) => setInputs({ ...inputs, [key]: e.target.value })}
+                style={{ flex: 1, fontSize: '0.82rem' }}
+              />
+              <button className="sm" disabled={!(inputs[key] ?? '').trim()} onClick={() => {
+                act(() => post('/tier-statuses', { tier: key, label: inputs[key].trim() }), 'Added.');
+                setInputs({ ...inputs, [key]: '' });
+              }}>+ Add</button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

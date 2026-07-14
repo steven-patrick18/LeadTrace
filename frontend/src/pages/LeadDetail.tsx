@@ -26,6 +26,7 @@ interface Lead {
   activities: Array<{ id: number; type: string; detail: string; createdAt: string; user: { name: string } }>;
   queueEntries: Array<{ id: number; transferPoint: string }>;
   customValues: Array<{ fieldId: number; value: string }>;
+  workStatus: { id: number; label: string } | null;
 }
 
 export function LeadDetail() {
@@ -83,6 +84,7 @@ export function LeadDetail() {
         #{lead.id} {lead.firstName} {lead.lastName}{' '}
         <span className="badge tier">{lead.currentTier}</span>{' '}
         <span className={`badge ${lead.status}`}>{lead.status}</span>
+        {lead.workStatus && <span className="badge QUALIFIED" style={{ marginLeft: 6 }}>{lead.workStatus.label}</span>}
         {lead.status === 'CLOSED_WON' && lead.currentTier === 'CLOSER' && (
           <span className="muted" style={{ fontSize: '0.8rem', marginLeft: 10 }}>
             🏁 won — post-sale processing stays with {lead.assignedTo?.name ?? 'the Closer'}

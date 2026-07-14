@@ -72,8 +72,9 @@ assert(r.status === 403, 'agent denied routing queue');
 
 // 8. Admin sees queue, routes to SS
 r = await api(admin.token, 'GET', '/routing/queue');
-assert(r.status === 200 && r.json.T1_TO_SS.length > 0, 'admin sees T1 queue row', r.json);
-const queueId = r.json.T1_TO_SS[0].id;
+const myT1 = r.json.T1_TO_SS?.find((x) => x.lead.id === leadId);
+assert(r.status === 200 && !!myT1, 'admin sees T1 queue row', r.json);
+const queueId = myT1.id;
 r = await api(admin.token, 'POST', `/routing/queue/${queueId}/route`, { toUserId: ss.user.id });
 assert(r.status === 201, 'admin routes to SS', r.json);
 
@@ -89,7 +90,7 @@ assert(r.status === 201, 'SS requests transfer to closer');
 
 // 11. Admin routes T2 — but first prove tier validation: try routing to the agent
 r = await api(admin.token, 'GET', '/routing/queue');
-const t2 = r.json.T2_TO_CLOSER[0];
+const t2 = r.json.T2_TO_CLOSER.find((x) => x.lead.id === leadId);
 r = await api(admin.token, 'POST', `/routing/queue/${t2.id}/route`, { toUserId: agent.user.id });
 assert(r.status === 400, 'T2 route to non-closer rejected', r.status);
 r = await api(admin.token, 'POST', `/routing/queue/${t2.id}/route`, { toUserId: closer.user.id });

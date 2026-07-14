@@ -269,6 +269,21 @@ export class EnrichmentService {
       }
     }
 
+    // Per-provider API request limit (0 = unlimited)
+    const activeProvider = await this.prisma.providerSetting.findFirst({ where: { isActive: true } });
+    if (activeProvider && activeProvider.dailyRequestLimit > 0) {
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      const callsToday = await this.prisma.providerUsage.count({
+        where: { providerId: activeProvider.id, createdAt: { gte: startOfDay }, cacheHit: false },
+      });
+      if (callsToday >= activeProvider.dailyRequestLimit) {
+        throw new Error(
+          `Daily API request limit reached for ${activeProvider.displayName} (${activeProvider.dailyRequestLimit}/day).`,
+        );
+      }
+    }
+
     const result = await live();
 
     await this.prisma.searchCache.upsert({

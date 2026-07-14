@@ -43,6 +43,7 @@ class UpdateProviderDto {
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsInt() @Min(0) costPerSearchCents?: number;
   @IsOptional() @IsInt() @Min(0) dailySpendCapCents?: number;
+  @IsOptional() @IsInt() @Min(0) dailyRequestLimit?: number;
   @IsOptional() @IsInt() @Min(1) cacheTtlHours?: number;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsUrl() websiteUrl?: string;
@@ -82,6 +83,43 @@ export class ProvidersController {
   async list() {
     const rows = await this.prisma.providerSetting.findMany({ orderBy: { id: 'asc' } });
     return rows.map((p) => this.sanitize(p));
+  }
+
+  /** Per-provider management page: settings + live usage against its limits. */
+  @RequirePermission('manage_providers')
+  @Get(':id')
+  async detail(@Param('id', ParseIntPipe) id: number) {
+    const provider = await this.prisma.providerSetting.findUnique({ where: { id } });
+    if (!provider) throw new BadRequestException('Unknown provider');
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const since30 = new Date(Date.now() - 30 * 86400_000);
+    const [callsToday, spentTodayAgg, live30, cache30, cost30] = await Promise.all([
+      this.prisma.providerUsage.count({ where: { providerId: id, createdAt: { gte: startOfDay }, cacheHit: false } }),
+      this.prisma.providerUsage.aggregate({
+        where: { providerId: id, createdAt: { gte: startOfDay }, cacheHit: false },
+        _sum: { costCents: true },
+      }),
+      this.prisma.providerUsage.count({ where: { providerId: id, createdAt: { gte: since30 }, cacheHit: false } }),
+      this.prisma.providerUsage.count({ where: { providerId: id, createdAt: { gte: since30 }, cacheHit: true } }),
+      this.prisma.providerUsage.aggregate({
+        where: { providerId: id, createdAt: { gte: since30 }, cacheHit: false },
+        _sum: { costCents: true },
+      }),
+    ]);
+    return {
+      ...this.sanitize(provider),
+      usage: {
+        callsToday,
+        spentTodayCents: spentTodayAgg._sum.costCents ?? 0,
+        last30d: {
+          liveCalls: live30,
+          cacheHits: cache30,
+          costCents: cost30._sum.costCents ?? 0,
+          cacheHitRate: live30 + cache30 > 0 ? Math.round((cache30 / (live30 + cache30)) * 100) : 0,
+        },
+      },
+    };
   }
 
   /** Add a custom provider entry to the catalog (inactive until an adapter exists). */
@@ -144,6 +182,7 @@ export class ProvidersController {
           isActive: dto.isActive,
           costPerSearchCents: dto.costPerSearchCents,
           dailySpendCapCents: dto.dailySpendCapCents,
+          dailyRequestLimit: dto.dailyRequestLimit,
           cacheTtlHours: dto.cacheTtlHours,
           description: dto.description,
           websiteUrl: dto.websiteUrl,

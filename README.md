@@ -48,6 +48,7 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
 | Fields/comments/access checks (27) | `node backend/scripts/smoke-fields.mjs` (needs dev server) |
 | Desk/batch-ID checks (16) | `node backend/scripts/smoke-desks.mjs` (needs dev server) |
 | Quick-session checks (15) | `node backend/scripts/smoke-batch-sessions.mjs` (needs dev server; uses up the demo Agent's rate-limit window) |
+| Status/notification/limit checks (23) | `node backend/scripts/smoke-statuses-notifs.mjs` (needs dev server) |
 | **Demo data (all areas)** | `node backend/scripts/demo-data.mjs` — leads in every status/tier, queue rows, calls, comments, fields, enrichments, DNC, desk sessions |
 | Lockdown drill | `node backend/scripts/smoke-lockdown.mjs` (needs dev server; briefly locks the system!) |
 
@@ -136,6 +137,28 @@ When the Sr Agent / Closer / Manager walks over to that machine:
   clocked in. Requiring a seat for calls is an admin setting
   (`require_desk_for_calls`, off by default so quick sessions flow freely).
 - Seeded desks: `DESK-01` … `DESK-06`; admins add more on the Desk Floor page.
+
+### Work-status lists, notifications, provider pages
+
+- **Per-tier work statuses**: Agent, Sr Agent and Closer each have their own
+  Admin-defined status list (Settings → "Work-status lists": add / rename /
+  deactivate / delete — delete refuses while leads use the status). The
+  assigned user picks from the lead's current-tier list on the lead card
+  (saves instantly, logged); statuses reset when the lead is routed up. The
+  pipeline status (NEW/PENDING_ROUTING/…) remains routing-engine-only.
+- **Custom fields** can now be renamed and deleted too (delete refuses while
+  values exist — deactivate keeps the data).
+- **Notifications**: lead detail/field updates, work-status changes, comments,
+  closes and send-backs notify the assignee, the creator, and every
+  view_all_leads holder (manager/admin) — never the actor. A notification
+  stays unread until the person clicks it; clicking marks exactly that one
+  read and jumps to the concerned lead.
+- **Provider pages** (`/providers/:id`): each provider has its own management
+  page — editable sign-up steps, write-only credentials, cost per search,
+  daily spend cap, **daily API request limit** (enforced server-side: live
+  calls stop at the limit until midnight, cache keeps working, breaches
+  audited), cache TTL, attestation, activation, and live usage tiles (calls
+  today vs limit, spend vs cap, 30-day cache-hit rate and cost).
 
 ### Custom fields, comments, per-lead access
 

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { get, patch, post } from '../api';
 
 interface Provider {
@@ -83,13 +84,7 @@ function ProviderCard({
   onOk: (m: string) => void;
   onErr: (e: unknown) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [apiKey, setApiKey] = useState('');
-  const [apiSecret, setApiSecret] = useState('');
-  const [cost, setCost] = useState(String(p.costPerSearchCents));
-  const [cap, setCap] = useState(String(p.dailySpendCapCents));
-  const [ttl, setTtl] = useState(String(p.cacheTtlHours));
-  const [attestation, setAttestation] = useState(p.permittedUseAttestation ?? '');
+  const nav = useNavigate();
 
   const update = async (data: Record<string, unknown>, okMsg: string) => {
     try {
@@ -101,31 +96,13 @@ function ProviderCard({
     }
   };
 
-  const saveCredentials = () => {
-    const data: Record<string, unknown> = {};
-    if (apiKey.trim()) data.apiKey = apiKey.trim();
-    if (apiSecret.trim()) data.apiSecret = apiSecret.trim();
-    if (!Object.keys(data).length) return;
-    update(data, 'Credentials saved (stored server-side only — they are never sent back to the browser).');
-    setApiKey('');
-    setApiSecret('');
-  };
-
-  const saveConfig = () =>
-    update(
-      {
-        costPerSearchCents: Number(cost) || 0,
-        dailySpendCapCents: Number(cap) || 0,
-        cacheTtlHours: Math.max(1, Number(ttl) || 720),
-        ...(attestation.trim().length >= 20 && attestation !== p.permittedUseAttestation
-          ? { permittedUseAttestation: attestation.trim() }
-          : {}),
-      },
-      'Settings saved.',
-    );
-
   return (
-    <div className="card" style={p.isActive ? { borderColor: 'var(--green)' } : undefined}>
+    <div
+      className="card"
+      style={{ ...(p.isActive ? { borderColor: 'var(--green)' } : {}), cursor: 'pointer' }}
+      title={`Manage ${p.displayName}`}
+      onClick={() => nav(`/providers/${p.id}`)}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <div>
           <strong style={{ fontSize: '1.06rem' }}>{p.displayName}</strong>{' '}
@@ -135,20 +112,18 @@ function ProviderCard({
             ? <span className="badge tier">adapter ready</span>
             : <span className="badge PENDING_ROUTING" title="Credentials can be saved now; searches need the adapter coded first.">adapter pending</span>}
           {p.description && <div className="muted" style={{ marginTop: 6, maxWidth: 640 }}>{p.description}</div>}
-          <div style={{ marginTop: 6, fontSize: '0.84rem' }}>
+          <div style={{ marginTop: 6, fontSize: '0.84rem' }} onClick={(e) => e.stopPropagation()}>
             {p.websiteUrl && <a href={p.websiteUrl} target="_blank" rel="noreferrer" style={{ marginRight: 14 }}>Website ↗</a>}
             {p.signupUrl && <a href={p.signupUrl} target="_blank" rel="noreferrer" style={{ marginRight: 14 }}>Sign up ↗</a>}
             {p.docsUrl && <a href={p.docsUrl} target="_blank" rel="noreferrer">API docs ↗</a>}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button className="ghost sm" onClick={() => setOpen(!open)}>{open ? 'Hide setup' : 'Setup'}</button>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+          <button className="ghost sm" onClick={() => nav(`/providers/${p.id}`)}>Manage →</button>
           {p.isActive ? (
-            p.code !== 'MOCK' || true ? (
-              <button className="warn sm" onClick={() => update({ isActive: false }, `${p.displayName} deactivated. Activate another provider before searching.`)}>
-                Deactivate
-              </button>
-            ) : null
+            <button className="warn sm" onClick={() => update({ isActive: false }, `${p.displayName} deactivated. Activate another provider before searching.`)}>
+              Deactivate
+            </button>
           ) : (
             <button className="sm" onClick={() => update({ isActive: true }, `${p.displayName} is now the active provider.`)}>
               Activate
@@ -156,80 +131,6 @@ function ProviderCard({
           )}
         </div>
       </div>
-
-      {open && (
-        <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-          {p.howToGet && (
-            <>
-              <h2>How to get access</h2>
-              <div style={{ whiteSpace: 'pre-line', fontSize: '0.88rem', lineHeight: 1.65, marginBottom: 16 }}>
-                {p.howToGet}
-              </div>
-            </>
-          )}
-
-          {p.code !== 'MOCK' && (
-            <>
-              <h2>API credentials</h2>
-              <p className="muted" style={{ fontSize: '0.8rem' }}>
-                {p.hasApiKey
-                  ? <>Key on file: <code>••••{p.apiKeyLast4}</code>{p.hasApiSecret && ', secret on file'} — enter a new value to replace.</>
-                  : 'No credentials saved yet.'}{' '}
-                Keys are stored server-side and never returned to the browser.
-              </p>
-              <div className="row" style={{ marginBottom: 16 }}>
-                <div className="field">
-                  <label>API key {p.code === 'ENDATO' && '(AP Name)'}</label>
-                  <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={p.hasApiKey ? 'replace…' : 'paste key'} style={{ width: 240 }} />
-                </div>
-                <div className="field">
-                  <label>API secret {p.code === 'ENDATO' && '(AP Password)'} <span className="muted">(if the provider uses one)</span></label>
-                  <input type="password" autoComplete="off" value={apiSecret} onChange={(e) => setApiSecret(e.target.value)} placeholder={p.hasApiSecret ? 'replace…' : 'optional'} style={{ width: 240 }} />
-                </div>
-                <button onClick={saveCredentials} disabled={!apiKey.trim() && !apiSecret.trim()}>Save credentials</button>
-              </div>
-            </>
-          )}
-
-          <h2>Cost &amp; cache</h2>
-          <div className="row" style={{ marginBottom: 16 }}>
-            <div className="field">
-              <label>Cost per search (cents)</label>
-              <input type="number" min={0} value={cost} onChange={(e) => setCost(e.target.value)} style={{ width: 120 }} />
-            </div>
-            <div className="field">
-              <label>Daily spend cap (cents, 0 = none)</label>
-              <input type="number" min={0} value={cap} onChange={(e) => setCap(e.target.value)} style={{ width: 140 }} />
-            </div>
-            <div className="field">
-              <label>Cache TTL (hours)</label>
-              <input type="number" min={1} value={ttl} onChange={(e) => setTtl(e.target.value)} style={{ width: 110 }} />
-            </div>
-          </div>
-
-          <h2>Permitted-use attestation</h2>
-          <p className="muted" style={{ fontSize: '0.8rem' }}>
-            Required before activation. Recorded with your name and timestamp in the audit log.
-          </p>
-          <textarea
-            rows={3}
-            style={{ width: '100%', maxWidth: 700 }}
-            value={attestation}
-            onChange={(e) => setAttestation(e.target.value)}
-            placeholder={DEFAULT_ATTESTATION}
-          />
-          {!attestation && (
-            <div>
-              <button className="ghost sm" style={{ marginTop: 6 }} onClick={() => setAttestation(DEFAULT_ATTESTATION)}>
-                Use standard wording
-              </button>
-            </div>
-          )}
-          <div style={{ marginTop: 12 }}>
-            <button onClick={saveConfig}>Save settings</button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

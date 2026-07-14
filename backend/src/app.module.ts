@@ -44,6 +44,7 @@ import { RoutingService } from './routing/routing.service';
 import { SearchController } from './search/search.controller';
 import { SearchService } from './search/search.service';
 import { SettingsController } from './settings/settings.controller';
+import { TierStatusesController } from './tier-statuses/tier-statuses.controller';
 import { UsersController } from './users/users.controller';
 
 @Module({
@@ -70,6 +71,7 @@ import { UsersController } from './users/users.controller';
     CommentsController,
     LeadAccessController,
     DesksController,
+    TierStatusesController,
   ],
   providers: [
     PrismaService,

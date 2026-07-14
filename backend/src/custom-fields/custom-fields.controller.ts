@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Ip,
@@ -25,6 +26,7 @@ import { AuditService } from '../common/audit.service';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/decorators';
 import { PrismaService } from '../common/prisma.service';
 import { LeadAccessService } from '../leads/lead-access.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 class CreateFieldDto {
   @IsString() @MinLength(2) label!: string;
@@ -51,6 +53,7 @@ export class CustomFieldsController {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: LeadAccessService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Every user needs the field definitions to render lead forms. */
@@ -117,6 +120,25 @@ export class CustomFieldsController {
     return field;
   }
 
+  /** Hard delete only when no values exist — otherwise deactivate keeps data. */
+  @RequirePermission('manage_custom_fields')
+  @Delete('custom-fields/:id')
+  async remove(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number, @Ip() ip: string) {
+    const field = await this.prisma.customFieldDef.findUnique({
+      where: { id },
+      include: { _count: { select: { values: true } } },
+    });
+    if (!field) throw new BadRequestException('Field not found');
+    if (field._count.values > 0) {
+      throw new BadRequestException(
+        `"${field.label}" holds ${field._count.values} value(s) — deactivate it instead so lead data is kept.`,
+      );
+    }
+    await this.prisma.customFieldDef.delete({ where: { id } });
+    await this.audit.log({ userId: user.id, action: 'CUSTOM_FIELD_DELETED', ip, detail: { fieldId: id, label: field.label } });
+    return { ok: true };
+  }
+
   /**
    * Fill or update a value — stays editable so details confirmed with the
    * customer can be corrected any time. Uses edit_lead scope (OWN/ASSIGNED/ALL)
@@ -172,6 +194,10 @@ export class CustomFieldsController {
     await this.audit.log({
       userId: user.id, action: 'LEAD_FIELD_UPDATED', ip,
       detail: { leadId, fieldId: dto.fieldId, label: field.label },
+    });
+    await this.notifications.notifyLeadWatchers(leadId, user.id, {
+      type: 'LEAD_UPDATED',
+      title: `✏️ ${user.name} set "${field.label}" on lead #${leadId} (${lead.firstName} ${lead.lastName})`,
     });
     return saved;
   }

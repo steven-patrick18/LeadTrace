@@ -65,6 +65,21 @@ export class SearchService {
       }
     }
 
+    // 2b) API access limit: max live requests per day for this provider
+    if (provider.dailyRequestLimit > 0) {
+      const callsToday = await this.liveCallsToday(provider.id);
+      if (callsToday >= provider.dailyRequestLimit) {
+        await this.audit.log({
+          userId,
+          action: 'PROVIDER_REQUEST_LIMIT_HIT',
+          detail: { provider: provider.code, callsToday, limit: provider.dailyRequestLimit },
+        });
+        throw new ServiceUnavailableException(
+          `Daily API request limit reached for ${provider.displayName} (${provider.dailyRequestLimit}/day). Cached results still work.`,
+        );
+      }
+    }
+
     // 3) Live provider call
     const matches = await adapter.searchPerson(query);
 
@@ -117,6 +132,14 @@ export class SearchService {
     const provider = await this.prisma.providerSetting.findFirst({ where: { isActive: true } });
     if (!provider) throw new ServiceUnavailableException('No active data provider configured');
     return provider;
+  }
+
+  private async liveCallsToday(providerId: number): Promise<number> {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    return this.prisma.providerUsage.count({
+      where: { providerId, createdAt: { gte: startOfDay }, cacheHit: false },
+    });
   }
 
   private async spentTodayCents(providerId: number): Promise<number> {

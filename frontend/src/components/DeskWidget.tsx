@@ -77,11 +77,11 @@ export function DeskWidget() {
           <button className="ghost sm" onClick={clockOut} disabled={busy}>End shift</button>
         </>
       ) : (
-        <form onSubmit={clockIn} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <form onSubmit={clockIn} style={{ display: 'flex', gap: 6, alignItems: 'center' }} title="Clock in at a shared desk using its DESK-xx code (not your personal batch ID)">
           <input
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="Batch ID (e.g. DESK-01)"
+            placeholder="Desk code (e.g. DESK-01)"
             style={{ width: 170, padding: '5px 9px', fontSize: '0.82rem' }}
           />
           <button type="submit" className="sm" disabled={busy || code.trim().length < 3}>Clock in</button>

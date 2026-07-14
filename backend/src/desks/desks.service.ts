@@ -36,9 +36,18 @@ export class DesksService {
   }
 
   async clockIn(user: AuthUser, batchCode: string, ip?: string) {
-    const desk = await this.prisma.desk.findUnique({ where: { code: batchCode.trim().toUpperCase() } });
+    const code = batchCode.trim().toUpperCase();
+    const desk = await this.prisma.desk.findUnique({ where: { code } });
     if (!desk || !desk.isActive) {
-      throw new BadRequestException('Unknown batch ID — check the code on your desk');
+      // Helpful redirect: if they typed a PERSONAL batch ID here by mistake,
+      // point them at the ⚡ Session switcher instead of the desk clock-in.
+      const asUser = await this.prisma.user.findUnique({ where: { batchId: code } });
+      if (asUser) {
+        throw new BadRequestException(
+          `"${code}" is a personal batch ID, not a desk code. To work as yourself on this screen, use the ⚡ Session button (top left), not Clock in. The Clock-in box takes a desk code like DESK-01.`,
+        );
+      }
+      throw new BadRequestException('Unknown desk code — check the code printed on your desk (e.g. DESK-01)');
     }
 
     return this.prisma.$transaction(async (tx) => {

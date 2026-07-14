@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { BatchDataProvider } from './batchdata.provider';
+import { EndatoProvider } from './endato.provider';
 import { IpqsProvider } from './ipqs.provider';
 import { MelissaProvider } from './melissa.provider';
 import { MockProvider } from './mock.provider';
@@ -28,6 +29,7 @@ export class ProviderRegistry {
     twilio: TwilioLookupProvider,
     ipqs: IpqsProvider,
     numverify: NumverifyProvider,
+    endato: EndatoProvider,
   ) {
     this.register(mock);
     this.register(engine); // free self-hosted tier
@@ -37,7 +39,8 @@ export class ProviderRegistry {
     this.register(twilio); // easy: caller name + line type
     this.register(ipqs); // easy: free 5k/mo, fraud/spam score
     this.register(numverify); // easy: free phone validation
-    // Endato + IDI adapters register here when implemented — no other change.
+    this.register(endato); // DEEP: name + aliases + addresses + relatives + emails
+    // IDI adapter registers here when implemented — no other change.
   }
 
   register(adapter: PersonDataProvider) {

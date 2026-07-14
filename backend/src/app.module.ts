@@ -33,6 +33,7 @@ import { NotificationsService } from './notifications/notifications.service';
 import { PermissionsController } from './permissions/permissions.controller';
 import { PermissionsService } from './permissions/permissions.service';
 import { BatchDataProvider } from './providers/batchdata.provider';
+import { EndatoProvider } from './providers/endato.provider';
 import { IpqsProvider } from './providers/ipqs.provider';
 import { MelissaProvider } from './providers/melissa.provider';
 import { MockProvider } from './providers/mock.provider';
@@ -95,6 +96,7 @@ import { UsersController } from './users/users.controller';
     TwilioLookupProvider,
     IpqsProvider,
     NumverifyProvider,
+    EndatoProvider,
     ProviderRegistry,
     SearchService,
     LeadAccessService,

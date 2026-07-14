@@ -159,15 +159,20 @@ When the Sr Agent / Closer / Manager walks over to that machine:
 
 ### Reports & user oversight
 
-- **Reports page** (`view_reports_team`): date-range analysis (7/30/90/365
-  days) — leads created, calls made, win rate, average time-to-route, funnel,
-  pipeline snapshot by status/tier, activity volume per day, and a per-user
-  performance table with win rates. CSV exports (leads + performance) behind
-  `export_data`.
-- **Expanded Users page** (`manage_users`, VIEW for Manager): click any user
-  to expand their overview — active leads, calls logged, won/lost with win
-  rate, leads received, current desk, their assigned leads and recent
-  activity. Batch IDs are visible to full managers only (masked for VIEW).
+- **Reports page** (`view_reports_team`): preset windows (7/30/90/365 days)
+  or a **custom from–to date range** — leads created, calls made, win rate,
+  average time-to-route, funnel, pipeline snapshot by status/tier, activity
+  volume per day, and a per-user performance table with win rates. CSV
+  exports (leads + performance) behind `export_data`.
+- **Everything drills down**: dashboard status tiles, funnel bars, queue
+  health, pipeline rows, and per-user rows are clickable — they land on the
+  leads list pre-filtered (filters live in the URL: `?status=`, `?tier=`,
+  `?assignedTo=`) or on the user's page.
+- **User pages** (`/users/:id`, opened by clicking a user anywhere): full
+  profile editing — name, email, role, password reset, activate/deactivate —
+  plus **batch-ID assignment** (set a custom code or 🎲 random; duplicates
+  rejected), performance with win rate, live desk status, assigned leads,
+  and recent activity. Batch IDs are masked for VIEW-scope managers.
 
 ### Lead enrichment (sections A/C/D/E)
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { get } from '../api';
 import { useAuth } from '../auth';
 
@@ -19,22 +19,37 @@ interface LeadRow {
 
 export function MyLeads() {
   const { can } = useAuth();
+  // Filters live in the URL so dashboard/report tiles can deep-link here.
+  const [sp, setSp] = useSearchParams();
   const [items, setItems] = useState<LeadRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [status, setStatus] = useState('');
-  const [tier, setTier] = useState('');
-  const [q, setQ] = useState('');
-  const [scopeAll, setScopeAll] = useState(false);
+  const [q, setQ] = useState(sp.get('q') ?? '');
+
+  const status = sp.get('status') ?? '';
+  const tier = sp.get('tier') ?? '';
+  const assignedTo = sp.get('assignedTo') ?? '';
+  const who = sp.get('who') ?? '';
+  const scopeAll = can('view_all_leads') && sp.get('scope') === 'all';
+
+  const setParam = (key: string, value: string) => {
+    setPage(1);
+    setSp((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set(key, value);
+      else next.delete(key);
+      return next;
+    });
+  };
 
   const load = async () => {
     const params = new URLSearchParams();
     if (status) params.set('status', status);
     if (tier) params.set('tier', tier);
     if (q) params.set('q', q);
+    if (assignedTo) params.set('assignedTo', assignedTo);
     params.set('page', String(page));
-    if (can('view_all_leads') && scopeAll) params.set('scope', 'all');
-    else params.set('scope', 'own');
+    params.set('scope', scopeAll ? 'all' : 'own');
     const r = await get<{ total: number; items: LeadRow[] }>(`/leads?${params}`);
     setItems(r.items);
     setTotal(r.total);
@@ -43,11 +58,19 @@ export function MyLeads() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, status, tier, scopeAll]);
+  }, [page, sp]);
 
   return (
     <div>
-      <h1>{scopeAll ? 'All Leads' : 'My Leads'}</h1>
+      <h1>
+        {scopeAll ? 'All Leads' : 'My Leads'}
+        {who && (
+          <span className="badge tier" style={{ marginLeft: 10 }}>
+            assigned to {who}{' '}
+            <a href="#" style={{ marginLeft: 4 }} onClick={(e) => { e.preventDefault(); setParam('assignedTo', ''); setParam('who', ''); }}>✕</a>
+          </span>
+        )}
+      </h1>
       <div className="card">
         <div className="row">
           <div className="field">
@@ -56,7 +79,7 @@ export function MyLeads() {
           </div>
           <div className="field">
             <label>Status</label>
-            <select value={status} onChange={(e) => { setPage(1); setStatus(e.target.value); }}>
+            <select value={status} onChange={(e) => setParam('status', e.target.value)}>
               <option value="">All</option>
               {['NEW', 'PENDING_ROUTING', 'IN_PROGRESS', 'QUALIFIED', 'CLOSED_WON', 'CLOSED_LOST', 'INVALID'].map((s) => (
                 <option key={s}>{s}</option>
@@ -65,7 +88,7 @@ export function MyLeads() {
           </div>
           <div className="field">
             <label>Tier</label>
-            <select value={tier} onChange={(e) => { setPage(1); setTier(e.target.value); }}>
+            <select value={tier} onChange={(e) => setParam('tier', e.target.value)}>
               <option value="">All</option>
               <option value="AGENT">Agent</option>
               <option value="SR_AGENT">Sr Agent</option>
@@ -74,7 +97,7 @@ export function MyLeads() {
           </div>
           <button className="ghost" onClick={load}>Apply</button>
           {can('view_all_leads') && (
-            <button className="ghost" onClick={() => { setPage(1); setScopeAll(!scopeAll); }}>
+            <button className="ghost" onClick={() => setParam('scope', scopeAll ? '' : 'all')}>
               {scopeAll ? 'Show mine only' : 'Show all leads'}
             </button>
           )}

@@ -99,6 +99,7 @@ export class LeadsController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('scope') scope?: string,
+    @Query('assignedTo') assignedTo?: string,
   ) {
     const canViewAll = (await this.permissions.check(user.roleId, 'view_all_leads')).allowed;
     if (scope === 'all' && !canViewAll) {
@@ -112,6 +113,7 @@ export class LeadsController {
       q,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
+      assignedToId: assignedTo ? Number(assignedTo) : undefined,
     });
   }
 

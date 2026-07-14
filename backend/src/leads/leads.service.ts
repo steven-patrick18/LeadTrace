@@ -115,12 +115,23 @@ export class LeadsService {
    */
   async list(
     user: AuthUser,
-    opts: { scope: 'ALL' | 'OWN'; status?: LeadStatus; tier?: string; q?: string; page?: number; pageSize?: number },
+    opts: {
+      scope: 'ALL' | 'OWN';
+      status?: LeadStatus;
+      tier?: string;
+      q?: string;
+      page?: number;
+      pageSize?: number;
+      assignedToId?: number; // drill-down filter (view_all callers, or self)
+    },
   ) {
     // Admin-revoked leads never appear in this user's lists
     const where: Prisma.LeadWhereInput = { ...(await this.access.blockFilter(user)) };
     if (opts.scope !== 'ALL') {
       where.OR = [{ assignedToId: user.id }, { createdById: user.id }];
+    }
+    if (opts.assignedToId && (opts.scope === 'ALL' || opts.assignedToId === user.id)) {
+      where.assignedToId = opts.assignedToId;
     }
     if (opts.status) where.status = opts.status;
     if (opts.tier) where.currentTier = opts.tier as never;

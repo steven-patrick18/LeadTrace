@@ -16,6 +16,7 @@ import { Reports } from './pages/Reports';
 import { RoutingQueue } from './pages/RoutingQueue';
 import { SearchPage } from './pages/SearchPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { UserDetail } from './pages/UserDetail';
 import { Users } from './pages/Users';
 
 export default function App() {
@@ -71,6 +72,7 @@ export default function App() {
           <Route path="/desk-floor" element={<DeskFloor />} />
           <Route path="/dnc" element={<DncList />} />
           <Route path="/users" element={<Users />} />
+          <Route path="/users/:id" element={<UserDetail />} />
           <Route path="/permissions" element={<Matrix />} />
           <Route path="/providers" element={<Providers />} />
           <Route path="/settings" element={<SettingsPage />} />

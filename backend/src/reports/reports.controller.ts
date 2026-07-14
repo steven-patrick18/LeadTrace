@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Query, Res } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/decorators';
 import { PermissionsService } from '../permissions/permissions.service';
@@ -29,11 +29,26 @@ export class ReportsController {
     return this.reports.performance(await this.scopeUserId(user));
   }
 
-  /** The Reports & Analysis page — team-wide by definition. */
+  /** The Reports & Analysis page — team-wide by definition.
+   *  Either ?days=N (preset) or ?from=YYYY-MM-DD&to=YYYY-MM-DD (custom range). */
   @RequirePermission('view_reports_team')
   @Get('analysis')
-  analysis(@Query('days') days?: string) {
-    return this.reports.analysis(days ? Math.min(365, Math.max(1, Number(days))) : 30);
+  analysis(
+    @Query('days') days?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    let fromDate: Date | undefined;
+    let toDate: Date | undefined;
+    if (from && to) {
+      fromDate = new Date(from);
+      toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999); // include the whole end day
+      if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) {
+        throw new BadRequestException('Invalid date range');
+      }
+    }
+    return this.reports.analysis(days ? Math.min(365, Math.max(1, Number(days))) : 30, fromDate, toDate);
   }
 
   @RequirePermission('export_data')

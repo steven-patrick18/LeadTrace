@@ -11,7 +11,7 @@ import {
   Post,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
-import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 import { AuditService } from '../common/audit.service';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/decorators';
 import { PrismaService } from '../common/prisma.service';
@@ -31,6 +31,9 @@ class UpdateUserDto {
   @IsOptional() @IsInt() roleId?: number;
   @IsOptional() @IsInt() reportsToId?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  /** Assign a specific batch ID (must be unique; uppercase letters/digits/dashes). */
+  @IsOptional() @Matches(/^[A-Z0-9-]{4,20}$/i, { message: 'Batch ID must be 4-20 chars: letters, digits, dashes' })
+  batchId?: string;
 }
 
 @Controller('users')
@@ -66,12 +69,21 @@ export class UsersController {
    */
   @RequirePermission('manage_users')
   @Get(':id/overview')
-  async overview(@Param('id', ParseIntPipe) id: number) {
-    const target = await this.prisma.user.findUnique({
+  async overview(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    const targetRaw = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, name: true, email: true, isActive: true, role: { select: { displayName: true } } },
+      select: {
+        id: true, name: true, email: true, isActive: true, batchId: true, createdAt: true,
+        role: { select: { id: true, roleCode: true, displayName: true } },
+        reportsTo: { select: { id: true, name: true } },
+      },
     });
-    if (!target) throw new BadRequestException('User not found');
+    if (!targetRaw) throw new BadRequestException('User not found');
+    // Batch IDs are quasi-credentials — masked for VIEW-scope callers.
+    const target =
+      user.permissionScope === 'VIEW' && targetRaw.batchId
+        ? { ...targetRaw, batchId: '••••••' }
+        : targetRaw;
 
     const [createdCount, activeAssigned, callsLogged, transfersRaised, leadsReceived, closedWon, closedLost,
       assignedLeads, recentActivity, deskSession, comments] = await Promise.all([
@@ -183,6 +195,14 @@ export class UsersController {
     if (id === user.id && dto.isActive === false) {
       throw new BadRequestException('You cannot deactivate your own account');
     }
+    let batchId: string | undefined;
+    if (dto.batchId) {
+      batchId = dto.batchId.toUpperCase();
+      const taken = await this.prisma.user.findUnique({ where: { batchId } });
+      if (taken && taken.id !== id) {
+        throw new BadRequestException(`Batch ID ${batchId} is already assigned to ${taken.name}`);
+      }
+    }
     const updated = await this.prisma.user.update({
       where: { id },
       data: {
@@ -191,9 +211,10 @@ export class UsersController {
         roleId: dto.roleId,
         reportsToId: dto.reportsToId,
         isActive: dto.isActive,
+        batchId,
         ...(dto.password ? { passwordHash: await argon2.hash(dto.password) } : {}),
       },
-      select: { id: true, name: true, email: true, roleId: true, isActive: true },
+      select: { id: true, name: true, email: true, roleId: true, isActive: true, batchId: true },
     });
     await this.audit.log({
       userId: user.id, action: 'USER_UPDATED', ip,

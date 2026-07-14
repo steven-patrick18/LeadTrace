@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { get } from '../api';
 import { useAuth } from '../auth';
 
@@ -22,6 +23,7 @@ interface PerfRow {
 
 export function Dashboard() {
   const { can } = useAuth();
+  const nav = useNavigate();
   const [data, setData] = useState<DashData | null>(null);
   const [perf, setPerf] = useState<PerfRow[]>([]);
 
@@ -32,11 +34,15 @@ export function Dashboard() {
 
   if (!data) return <div className="muted">Loading…</div>;
 
+  // Every number drills down to the leads list filtered to what it counts.
+  const scope = can('view_all_leads') ? 'scope=all&' : '';
+  const leadsUrl = (params: string) => `/leads?${scope}${params}`;
+
   const funnelSteps = [
-    { label: 'Created', value: data.funnel.created },
-    { label: 'Reached Sr Agent', value: data.funnel.reachedSS },
-    { label: 'Reached Closer', value: data.funnel.reachedCloser },
-    { label: 'Won', value: data.funnel.won },
+    { label: 'Created', value: data.funnel.created, to: leadsUrl('') },
+    { label: 'Reached Sr Agent', value: data.funnel.reachedSS, to: leadsUrl('tier=SR_AGENT') },
+    { label: 'Reached Closer', value: data.funnel.reachedCloser, to: leadsUrl('tier=CLOSER') },
+    { label: 'Won', value: data.funnel.won, to: leadsUrl('status=CLOSED_WON') },
   ];
   const max = Math.max(1, data.funnel.created);
 
@@ -48,10 +54,12 @@ export function Dashboard() {
 
       <div className="grid cols4">
         {['NEW', 'PENDING_ROUTING', 'IN_PROGRESS', 'CLOSED_WON'].map((s) => (
-          <div className="card stat" key={s}>
-            <div className="num">{data.byStatus[s] ?? 0}</div>
-            <div className="lbl">{s.replace(/_/g, ' ')}</div>
-          </div>
+          <Link to={leadsUrl(`status=${s}`)} key={s} style={{ color: 'inherit' }}>
+            <div className="card stat clickable" title={`See ${s.replace(/_/g, ' ').toLowerCase()} leads`}>
+              <div className="num">{data.byStatus[s] ?? 0}</div>
+              <div className="lbl">{s.replace(/_/g, ' ')} →</div>
+            </div>
+          </Link>
         ))}
       </div>
 
@@ -59,9 +67,14 @@ export function Dashboard() {
         <div className="card">
           <h2>Conversion funnel (Agent → SS → Closer → Won)</h2>
           {funnelSteps.map((s) => (
-            <div key={s.label} style={{ marginBottom: 10 }}>
+            <div
+              key={s.label}
+              style={{ marginBottom: 10, cursor: 'pointer' }}
+              title={`See these leads`}
+              onClick={() => nav(s.to)}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: 3 }}>
-                <span>{s.label}</span>
+                <span>{s.label} <span className="muted">→</span></span>
                 <span className="muted">
                   {s.value} ({Math.round((s.value / max) * 100)}%)
                 </span>
@@ -80,12 +93,17 @@ export function Dashboard() {
             </div>
           ))}
           <p className="muted" style={{ fontSize: '0.78rem' }}>
-            Computed from the append-only routing history — every count is traceable to a routing decision.
+            Computed from the append-only routing history — click a bar to see those leads.
           </p>
         </div>
 
-        <div className="card">
-          <h2>Routing queue health</h2>
+        <div
+          className={`card${can('route_leads') ? ' clickable' : ''}`}
+          style={can('route_leads') ? { cursor: 'pointer' } : undefined}
+          onClick={() => can('route_leads') && nav('/routing')}
+          title={can('route_leads') ? 'Open the routing queue' : undefined}
+        >
+          <h2>Routing queue health {can('route_leads') && <span className="muted" style={{ fontSize: '0.8rem' }}>→ open queue</span>}</h2>
           <div className="grid cols3">
             <div className="stat"><div className="num">{data.queue.pending}</div><div className="lbl">Pending</div></div>
             <div className="stat"><div className="num">{data.queue.avgWaitMinutes}m</div><div className="lbl">Avg wait</div></div>
@@ -104,11 +122,18 @@ export function Dashboard() {
           </thead>
           <tbody>
             {perf.map((p) => (
-              <tr key={p.user.id}>
-                <td>{p.user.name}</td>
+              <tr
+                key={p.user.id}
+                style={can('manage_users') ? { cursor: 'pointer' } : undefined}
+                title={can('manage_users') ? `Open ${p.user.name}'s page` : undefined}
+                onClick={() => can('manage_users') && nav(`/users/${p.user.id}`)}
+              >
+                <td>{can('manage_users') ? <Link to={`/users/${p.user.id}`}>{p.user.name}</Link> : p.user.name}</td>
                 <td className="muted">{p.user.role.displayName}</td>
                 <td>{p.createdCount}</td>
-                <td>{p.activeAssigned}</td>
+                <td onClick={(e) => { e.stopPropagation(); if (can('view_all_leads')) nav(leadsUrl(`assignedTo=${p.user.id}&who=${encodeURIComponent(p.user.name)}`)); }}>
+                  {p.activeAssigned}
+                </td>
                 <td>{p.callsLogged}</td>
                 <td>{p.transfersRaised}</td>
                 <td>{p.leadsReceived}</td>

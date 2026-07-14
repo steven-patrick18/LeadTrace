@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { get } from '../api';
 import { useAuth } from '../auth';
 
@@ -26,12 +27,21 @@ interface Analysis {
 
 export function Reports() {
   const { can } = useAuth();
+  const nav = useNavigate();
   const [days, setDays] = useState(30);
+  const [custom, setCustom] = useState(false);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [data, setData] = useState<Analysis | null>(null);
 
+  const load = () => {
+    const query = custom && from && to ? `from=${from}&to=${to}` : `days=${days}`;
+    get<Analysis>(`/reports/analysis?${query}`).then(setData);
+  };
   useEffect(() => {
-    get<Analysis>(`/reports/analysis?days=${days}`).then(setData);
-  }, [days]);
+    if (!custom) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days, custom]);
 
   if (!data) return <div className="muted">Loading…</div>;
 
@@ -44,12 +54,30 @@ export function Reports() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
         <h1 style={{ margin: 0 }}>Reports &amp; Analysis</h1>
         <div className="row">
-          <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <select
+            value={custom ? 'custom' : days}
+            onChange={(e) => {
+              if (e.target.value === 'custom') setCustom(true);
+              else {
+                setCustom(false);
+                setDays(Number(e.target.value));
+              }
+            }}
+          >
             <option value={7}>Last 7 days</option>
             <option value={30}>Last 30 days</option>
             <option value={90}>Last 90 days</option>
             <option value={365}>Last 12 months</option>
+            <option value="custom">Custom range…</option>
           </select>
+          {custom && (
+            <>
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <span className="muted">to</span>
+              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+              <button disabled={!from || !to || from > to} onClick={load}>Apply</button>
+            </>
+          )}
           {can('export_data') && (
             <>
               <button className="ghost" onClick={() => downloadCsv('/reports/export/leads.csv', 'leads')}>⬇ Leads CSV</button>
@@ -60,15 +88,26 @@ export function Reports() {
       </div>
 
       <div className="grid cols4" style={{ marginTop: 16 }}>
-        <div className="card stat"><div className="num">{s.createdInPeriod}</div><div className="lbl">Leads created</div></div>
+        <Link to="/leads?scope=all" style={{ color: 'inherit' }}>
+          <div className="card stat" style={{ cursor: 'pointer' }} title="See all leads">
+            <div className="num">{s.createdInPeriod}</div><div className="lbl">Leads created →</div>
+          </div>
+        </Link>
         <div className="card stat"><div className="num">{s.callsInPeriod}</div><div className="lbl">Calls made</div></div>
-        <div className="card stat">
-          <div className="num" style={{ color: 'var(--green)' }}>{s.wonInPeriod}</div>
-          <div className="lbl">Won ({s.winRatePct}% win rate)</div>
-        </div>
-        <div className="card stat">
+        <Link to="/leads?scope=all&status=CLOSED_WON" style={{ color: 'inherit' }}>
+          <div className="card stat" style={{ cursor: 'pointer' }} title="See won leads">
+            <div className="num" style={{ color: 'var(--green)' }}>{s.wonInPeriod}</div>
+            <div className="lbl">Won ({s.winRatePct}% win rate) →</div>
+          </div>
+        </Link>
+        <div
+          className="card stat"
+          style={can('route_leads') ? { cursor: 'pointer' } : undefined}
+          title={can('route_leads') ? 'Open the routing queue' : undefined}
+          onClick={() => can('route_leads') && nav('/routing')}
+        >
           <div className="num" style={{ color: s.avgRoutingMinutes > 60 ? 'var(--amber)' : undefined }}>{s.avgRoutingMinutes}m</div>
-          <div className="lbl">Avg time to route ({s.routingDecisions} decisions)</div>
+          <div className="lbl">Avg time to route ({s.routingDecisions} decisions){can('route_leads') ? ' →' : ''}</div>
         </div>
       </div>
 
@@ -99,8 +138,13 @@ export function Reports() {
             <thead><tr><th>Status</th><th>Leads</th></tr></thead>
             <tbody>
               {Object.entries(data.byStatus).map(([status, n]) => (
-                <tr key={status}>
-                  <td><span className={`badge ${status}`}>{status}</span></td>
+                <tr
+                  key={status}
+                  style={{ cursor: 'pointer' }}
+                  title="See these leads"
+                  onClick={() => nav(`/leads?scope=all&status=${status}`)}
+                >
+                  <td><span className={`badge ${status}`}>{status}</span> <span className="muted">→</span></td>
                   <td>{n}</td>
                 </tr>
               ))}
@@ -108,7 +152,11 @@ export function Reports() {
           </table>
           <p className="muted" style={{ fontSize: '0.8rem', marginTop: 8 }}>
             Open leads by tier:{' '}
-            {Object.entries(data.openByTier).map(([tier, n]) => `${tier} ${n}`).join(' · ') || '—'}
+            {Object.entries(data.openByTier).map(([tier, n]) => (
+              <Link key={tier} to={`/leads?scope=all&tier=${tier}`} style={{ marginRight: 10 }}>
+                {tier} {n}
+              </Link>
+            ))}
           </p>
         </div>
       </div>
@@ -140,8 +188,13 @@ export function Reports() {
             {data.perUser.map((p) => {
               const closed = p.closedWon + p.closedLost;
               return (
-                <tr key={p.user.id}>
-                  <td>{p.user.name}</td>
+                <tr
+                  key={p.user.id}
+                  style={can('manage_users') ? { cursor: 'pointer' } : undefined}
+                  title={can('manage_users') ? `Open ${p.user.name}'s page` : undefined}
+                  onClick={() => can('manage_users') && nav(`/users/${p.user.id}`)}
+                >
+                  <td>{can('manage_users') ? <Link to={`/users/${p.user.id}`}>{p.user.name}</Link> : p.user.name}</td>
                   <td className="muted">{p.user.role.displayName}</td>
                   <td>{p.createdCount}</td>
                   <td>{p.activeAssigned}</td>

@@ -136,24 +136,27 @@ export class ReportsService {
    * manager needs to review a period — funnel, outcomes, per-user numbers,
    * daily activity volume, and queue timing — for a chosen day range.
    */
-  async analysis(days: number) {
-    const since = new Date(Date.now() - days * 86400_000);
+  async analysis(days: number, from?: Date, to?: Date) {
+    // Preset window by default; explicit from/to wins (custom date range).
+    const since = from ?? new Date(Date.now() - days * 86400_000);
+    const until = to ?? new Date();
+    const range = { gte: since, lte: until };
 
     const [createdInPeriod, wonInPeriod, lostInPeriod, byStatus, byTier, funnel, perUser, activities, routed] =
       await Promise.all([
-        this.prisma.lead.count({ where: { createdAt: { gte: since } } }),
-        this.prisma.lead.count({ where: { status: 'CLOSED_WON', updatedAt: { gte: since } } }),
-        this.prisma.lead.count({ where: { status: 'CLOSED_LOST', updatedAt: { gte: since } } }),
+        this.prisma.lead.count({ where: { createdAt: range } }),
+        this.prisma.lead.count({ where: { status: 'CLOSED_WON', updatedAt: range } }),
+        this.prisma.lead.count({ where: { status: 'CLOSED_LOST', updatedAt: range } }),
         this.prisma.lead.groupBy({ by: ['status'], _count: { _all: true } }),
         this.prisma.lead.groupBy({ by: ['currentTier'], where: { status: { notIn: ['CLOSED_WON', 'CLOSED_LOST', 'INVALID'] } }, _count: { _all: true } }),
         this.dashboard(null).then((d) => d.funnel),
         this.performance(null),
         this.prisma.activity.findMany({
-          where: { createdAt: { gte: since } },
+          where: { createdAt: range },
           select: { type: true, createdAt: true },
         }),
         this.prisma.routingQueue.findMany({
-          where: { status: 'ROUTED', routedAt: { gte: since } },
+          where: { status: 'ROUTED', routedAt: range },
           select: { createdAt: true, routedAt: true, transferPoint: true },
         }),
       ]);
@@ -174,6 +177,7 @@ export class ReportsService {
     const closed = wonInPeriod + lostInPeriod;
     return {
       sinceDays: days,
+      range: { from: since.toISOString(), to: until.toISOString() },
       summary: {
         createdInPeriod,
         wonInPeriod,

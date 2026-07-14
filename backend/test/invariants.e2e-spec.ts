@@ -129,6 +129,9 @@ describe('Enrichment scope rules — no scraping, no biometrics (static proof)',
     });
   }
 
+  // Real provider adapters (BatchData, Trestle, Melissa) use fetch for their
+  // own licensed APIs — that is not scraping. This guard is about scraping
+  // libraries and fetching social content, both still forbidden.
   it('no scraping or image/face-processing libraries are installed', () => {
     for (const pkgPath of [
       join(__dirname, '..', 'package.json'),

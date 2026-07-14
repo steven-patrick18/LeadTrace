@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { BatchDataProvider } from './batchdata.provider';
+import { MelissaProvider } from './melissa.provider';
 import { MockProvider } from './mock.provider';
 import { OwnServerProvider } from './own-server.provider';
 import { PersonDataProvider } from './provider.interface';
+import { TrestleProvider } from './trestle.provider';
 
 /**
  * Adapter registry — the single place that knows which provider codes have a
@@ -14,12 +16,19 @@ import { PersonDataProvider } from './provider.interface';
 export class ProviderRegistry {
   private readonly adapters = new Map<string, PersonDataProvider>();
 
-  constructor(mock: MockProvider, engine: OwnServerProvider, batchData: BatchDataProvider) {
+  constructor(
+    mock: MockProvider,
+    engine: OwnServerProvider,
+    batchData: BatchDataProvider,
+    trestle: TrestleProvider,
+    melissa: MelissaProvider,
+  ) {
     this.register(mock);
-    this.register(engine); // our free self-hosted tier — adapter ready
-    this.register(batchData); // BatchData skip-tracing — adapter ready (needs balance)
-    // Remaining paid adapters (Endato, Trestle, IDI, Melissa) register here as
-    // they are implemented — no other file needs to change.
+    this.register(engine); // free self-hosted tier
+    this.register(batchData); // needs account balance
+    this.register(trestle); // needs a valid key
+    this.register(melissa); // needs an enabled license
+    // Endato + IDI adapters register here when implemented — no other change.
   }
 
   register(adapter: PersonDataProvider) {

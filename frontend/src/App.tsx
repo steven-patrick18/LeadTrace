@@ -17,6 +17,7 @@ import { Reports } from './pages/Reports';
 import { RoutingQueue } from './pages/RoutingQueue';
 import { SearchPage } from './pages/SearchPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SystemHealth } from './pages/SystemHealth';
 import { UserDetail } from './pages/UserDetail';
 import { Users } from './pages/Users';
 
@@ -44,6 +45,7 @@ export default function App() {
         {can('manage_permissions') && <Nav to="/permissions" label="Permissions" />}
         {can('manage_providers') && <Nav to="/providers" label="Providers" />}
         {(can('manage_permissions') || can('system_lockdown')) && <Nav to="/settings" label="Settings" />}
+        {can('system_lockdown') && <Nav to="/system" label="System" />}
         <div className="spacer" />
         <div className="whoami">
           {user.name}
@@ -78,6 +80,7 @@ export default function App() {
           <Route path="/providers" element={<Providers />} />
           <Route path="/providers/:id" element={<ProviderDetail />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/system" element={<SystemHealth />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>

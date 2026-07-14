@@ -5,18 +5,22 @@ import { EnrichmentDataProvider, PersonEnrichment } from '../enrichment/enrichme
 import { PersonDataProvider, PersonMatch, PersonSearchQuery } from './provider.interface';
 
 /**
- * Trestle (Whitepages Pro) adapter — Reverse Phone + Find Person.
- * Docs: https://trestle-api.redoc.ly  · Auth: `x-api-key` header.
+ * Trestle (Whitepages Pro) adapter. Uses the two self-serve endpoints most
+ * accounts have access to:
+ *   • Phone Validation  GET /3.0/phone_intel  ($0.015) — validity, line type,
+ *     carrier, activity score, prepaid flag.
+ *   • Real Contact      GET /2.0/real_contact ($0.03)  — contact grade A–F and
+ *     whether the phone/email matches the given name.
+ * Auth: `x-api-key` header. Docs: https://docs.trestleiq.com
  *
- * Reverse Phone (3.0/phone) is the richest single call for enrichment: it
- * returns the number's line type/carrier plus every owner with their names,
- * current + historical addresses, associated people, alternate phones and
- * emails. Find Person (3.2/person) drives name/zip search. We request the full
- * record and cache it (the app's per-provider cache is your base database —
- * raise this provider's cache TTL to reduce repeat cost).
+ * These return phone/contact QUALITY, not identity — perfect for killing
+ * wasted dials and cross-verifying phones another provider supplied. Full
+ * identity (owner name + addresses) needs Trestle's Reverse Phone API, which
+ * is "Request Access" on self-serve; enable it in the Trestle portal to unlock
+ * richer enrichment here later.
  *
- * Key/account issues (invalid key, quota) surface as thrown errors; the
- * enrichment merge skips this provider and keeps the others (PARTIAL).
+ * Account issues (invalid key, no wallet balance, locked product) throw, and
+ * the enrichment merge skips Trestle while keeping the other providers.
  */
 @Injectable()
 export class TrestleProvider implements PersonDataProvider, EnrichmentDataProvider {
@@ -43,7 +47,7 @@ export class TrestleProvider implements PersonDataProvider, EnrichmentDataProvid
         signal: ctrl.signal,
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(`Trestle ${res.status}: ${json?.message || json?.errorCode || res.statusText}`);
+      if (!res.ok) throw new Error(`Trestle ${res.status}: ${json?.message || json?.errorCode || json?.error || res.statusText}`);
       return json;
     } finally {
       clearTimeout(timer);
@@ -59,93 +63,72 @@ export class TrestleProvider implements PersonDataProvider, EnrichmentDataProvid
   private lineType(t: unknown): 'mobile' | 'landline' | 'voip' | 'unknown' {
     const s = String(t ?? '').toLowerCase();
     if (s.includes('mobile') || s.includes('cell')) return 'mobile';
-    if (s.includes('land') || s.includes('fixed')) return 'landline';
+    if (s.includes('landline') || s.includes('fixed')) return 'landline';
     if (s.includes('voip') || s.includes('nonfixed')) return 'voip';
     return 'unknown';
   }
 
-  private mapOwnerToMatch(owner: any, phoneNumber: string | null, phoneFacts: any): PersonMatch {
-    const names = owner?.name ? [owner.name] : owner?.names ?? [];
-    const first = owner?.firstname ?? (typeof names[0] === 'string' ? names[0].split(' ')[0] : names[0]?.firstname) ?? '';
-    const last = owner?.lastname ?? (typeof names[0] === 'string' ? names[0].split(' ').slice(-1)[0] : names[0]?.lastname) ?? '';
-    const addr = (owner?.current_addresses ?? owner?.addresses ?? [])[0] ?? {};
-    const phones: PersonMatch['phones'] = [];
-    if (phoneNumber) phones.push({ number: phoneNumber, lineType: this.lineType(phoneFacts?.line_type), isPrimary: true });
-    for (const p of owner?.phones ?? []) {
-      const n = this.e164(p?.phone_number ?? p);
-      if (n && !phones.some((x) => x.number === n)) phones.push({ number: n, lineType: this.lineType(p?.line_type), isPrimary: false });
-    }
-    return {
-      firstName: first,
-      lastName: last,
-      phones,
-      address: addr?.street_line_1 ?? addr?.line1 ?? null,
-      city: addr?.city ?? null,
-      state: addr?.state_code ?? addr?.state ?? null,
-      zip: addr?.postal_code ?? addr?.zip ?? null,
-      ageRange: owner?.age_range ?? (owner?.age ? String(owner.age) : null),
-      relatives: (owner?.associated_people ?? []).map((r: any) => r?.name ?? `${r?.firstname ?? ''} ${r?.lastname ?? ''}`.trim()).filter(Boolean),
-      confidence: Math.round((phoneFacts?.is_valid === false ? 0.3 : 0.75) * 100),
-      sourceProvider: this.code,
-    };
+  private gradeToConfidence(grade: unknown): number | null {
+    const map: Record<string, number> = { A: 0.95, B: 0.85, C: 0.7, D: 0.5, F: 0.3 };
+    return typeof grade === 'string' && map[grade] !== undefined ? map[grade] : null;
   }
 
-  async searchPerson(query: PersonSearchQuery): Promise<PersonMatch[]> {
-    if (query.phone) {
-      const j = await this.get(`/3.0/phone?phone=${encodeURIComponent(query.phone)}`);
-      const owners = j?.owners ?? [];
-      return owners.map((o: any) => this.mapOwnerToMatch(o, this.e164(j?.phone_number) ?? query.phone!, j));
-    }
-    if (query.lastName) {
-      const name = encodeURIComponent(`${query.firstName ?? ''} ${query.lastName}`.trim());
-      const zip = query.zip ? `&address.postal_code=${query.zip}` : '';
-      const j = await this.get(`/3.2/person?name=${name}${zip}`);
-      const people = j?.people ?? j?.person ?? [];
-      return (Array.isArray(people) ? people : [people]).map((o: any) => this.mapOwnerToMatch(o, null, null));
-    }
+  /** Search: the accessible Trestle endpoints don't reverse a phone into a
+   *  person, so Trestle contributes phone quality via enrichment, not search. */
+  async searchPerson(_query: PersonSearchQuery): Promise<PersonMatch[]> {
     return [];
   }
 
   async enrichPerson(input: { phone: string; firstName: string; lastName: string; zip?: string | null }): Promise<PersonEnrichment> {
-    const j = await this.get(`/3.0/phone?phone=${encodeURIComponent(input.phone)}`);
-    const owner = (j?.owners ?? [])[0] ?? {};
+    const phone = input.phone.replace(/\s/g, '');
+    const intel = await this.get(`/3.0/phone_intel?phone=${encodeURIComponent(phone)}`);
 
-    const primary = this.e164(j?.phone_number) ?? this.e164(input.phone) ?? input.phone;
-    const phones: PersonEnrichment['phones'] = [
-      {
-        number: primary,
-        lineType: this.lineType(j?.line_type),
-        carrier: j?.carrier ?? undefined,
-        active: j?.is_valid !== false,
-        spamRisk: j?.is_prepaid ? 'med' : 'low',
-        isPrimary: true,
-      },
-    ];
-    for (const p of owner?.phones ?? []) {
-      const n = this.e164(p?.phone_number ?? p);
-      if (n && !phones.some((x) => x.number === n)) {
-        phones.push({ number: n, lineType: this.lineType(p?.line_type), carrier: p?.carrier, active: p?.is_valid !== false, spamRisk: 'low', isPrimary: false });
+    // Real Contact adds a contact grade + name-match when we have a name.
+    let grade: unknown = null;
+    let nameMatch: boolean | null = null;
+    let emailValid: boolean | null = null;
+    if (input.firstName || input.lastName) {
+      try {
+        const name = `${input.firstName} ${input.lastName}`.trim();
+        const rc = await this.get(`/2.0/real_contact?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`);
+        grade = rc?.phone?.contact_grade ?? null;
+        nameMatch = rc?.phone?.name_match ?? null;
+        emailValid = rc?.email?.is_valid ?? null;
+      } catch {
+        /* Real Contact may be unavailable on the plan — phone_intel still stands */
       }
     }
 
-    const addrs = [...(owner?.current_addresses ?? []), ...(owner?.historical_addresses ?? [])];
+    const e164 = this.e164(intel?.phone_number) ?? this.e164(phone) ?? phone;
+    const active = intel?.is_valid === true && (intel?.activity_score ?? 0) > 0;
+    const gradeConf = this.gradeToConfidence(grade);
+
     return {
-      aliases: (owner?.alternate_names ?? []).map((a: any) => (typeof a === 'string' ? a : `${a?.firstname ?? ''} ${a?.lastname ?? ''}`.trim())).filter(Boolean),
-      addresses: addrs.filter((a: any) => a?.street_line_1 || a?.line1).map((a: any, i: number) => ({
-        line1: a.street_line_1 ?? a.line1,
-        city: a.city ?? '',
-        state: a.state_code ?? a.state ?? '',
-        zip: a.postal_code ?? a.zip ?? '',
-        type: i === 0 ? 'current' : 'past',
-      })),
-      phones,
-      emails: (owner?.emails ?? []).map((e: any) => (typeof e === 'string' ? e : e?.email_address ?? e?.email)).filter((e: any) => typeof e === 'string' && e.includes('@')),
-      ageRange: owner?.age_range ?? (owner?.age ? String(owner.age) : null),
-      relatives: (owner?.associated_people ?? []).map((r: any) => ({ name: r?.name ?? `${r?.firstname ?? ''} ${r?.lastname ?? ''}`.trim() })).filter((r: any) => r.name),
+      aliases: [],
+      addresses: [],
+      phones: [
+        {
+          number: e164,
+          lineType: this.lineType(intel?.line_type),
+          carrier: intel?.carrier ?? undefined,
+          active,
+          // Prepaid + low activity ⇒ higher spam/burner risk.
+          spamRisk: intel?.is_prepaid ? 'med' : (intel?.activity_score ?? 100) < 30 ? 'med' : 'low',
+          isPrimary: true,
+        },
+      ],
+      emails: [],
+      ageRange: null,
+      relatives: [],
       associates: [],
       property: { ownership: 'unknown' },
-      socialUrls: [], // Trestle does not return social; never fetched
-      providerConfidence: j?.is_valid === false ? 0.3 : owner?.name ? 0.85 : 0.6,
+      socialUrls: [], // Trestle returns no social; never fetched
+      // Confidence from the contact grade if we got one, else from validity.
+      // A confirmed name_match lifts it a notch.
+      providerConfidence: Math.min(
+        0.98,
+        (gradeConf ?? (intel?.is_valid ? 0.65 : 0.3)) + (nameMatch === true ? 0.05 : 0) + (emailValid ? 0.02 : 0),
+      ),
       sourceProvider: this.code,
     };
   }

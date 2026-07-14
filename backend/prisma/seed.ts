@@ -174,7 +174,7 @@ async function main() {
       signupUrl: 'https://trestleiq.com/free-trial/',
       docsUrl: 'https://trestle-api.redoc.ly',
       howToGet:
-        '1. Start a free trial at trestleiq.com (instant, no sales call).\n2. Verify your business email; the dashboard shows your API Key immediately.\n3. Paste the key below and Save credentials.\n4. Record the permitted-use attestation, set cost per search, then Activate once the adapter is implemented.',
+        'Adapter IMPLEMENTED. Uses Phone Validation ($0.015) + Real Contact ($0.03) — the endpoints available on self-serve — for phone quality (line type, carrier, activity, contact grade, name match).\n1. Sign up at trestleiq.com and add wallet funds (pay-as-you-go).\n2. Copy your API key from the portal (the "Current Key") and Save it below.\n3. Record the attestation, then Activate.\nNOTE: full identity (owner name + addresses) needs Trestle\'s Reverse Phone API, which is "Request Access" on self-serve — enable it in the portal to unlock richer data here.',
     },
     {
       code: 'IDI',

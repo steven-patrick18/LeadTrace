@@ -144,6 +144,17 @@ async function main() {
         'Development mock data. Real providers require a recorded permitted-use attestation: sales lead-generation only — never credit, employment, insurance, or tenant-screening decisions (FCRA/DPPA/GLBA).',
     },
     {
+      code: 'LEADTRACE_ENGINE',
+      displayName: 'LeadTrace Engine (free tier)',
+      description:
+        'Our own self-hosted engine — $0, no third-party account. Offline phone intelligence (valid/invalid, line type, region via libphonenumber), ZIP/area-code geo, and cross-reference against your own existing leads and enrichments. No scraping, no paid data. Use it as your always-on free baseline; layer paid providers on top when you need deeper coverage.',
+      isActive: false,
+      howToGet:
+        'Nothing to set up — built into LeadTrace. Click Activate to make it the live provider for search and enrichment. It never leaves your server and never buys or scrapes data, so there is no cost and no credential.\n\nWhat it returns:\n• Phone: validity, line type (mobile/landline/voip), country — kills wasted dials.\n• Geo: city/state/timezone from ZIP, area-code region.\n• First-party: aliases, prior addresses and extra phones already in your database.\n\nWhat it will NOT do (by policy): scrape social/web content, fetch photos, or build biometric data. For deeper third-party coverage, add a licensed provider (Endato, Trestle, IDI, BatchData, Melissa) and activate it.',
+      permittedUseAttestation:
+        'LeadTrace Engine uses only offline reference data and your own first-party records for sales lead-generation. It performs no third-party data scraping and never processes credit, employment, insurance, or tenant-screening decisions (FCRA/DPPA/GLBA).',
+    },
+    {
       code: 'ENDATO',
       displayName: 'Endato (Enformion)',
       description:

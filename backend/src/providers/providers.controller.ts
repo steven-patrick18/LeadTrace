@@ -118,8 +118,10 @@ export class ProvidersController {
           `${provider.displayName} has no adapter implemented yet. Credentials can be saved now; ask your developer to add the ${provider.code} adapter before activating.`,
         );
       }
-      // 2) Real providers need credentials on file (MOCK is credential-free).
-      if (provider.code !== 'MOCK' && !provider.apiKey && !dto.apiKey) {
+      // 2) Paid providers need credentials on file. The built-in self-hosted
+      //    providers (MOCK, LEADTRACE_ENGINE) are credential-free.
+      const CREDENTIAL_FREE = ['MOCK', 'LEADTRACE_ENGINE'];
+      if (!CREDENTIAL_FREE.includes(provider.code) && !provider.apiKey && !dto.apiKey) {
         throw new BadRequestException('Save the API credentials before activating this provider.');
       }
       // 3) A provider cannot be activated without a permitted-use attestation (spec §8).

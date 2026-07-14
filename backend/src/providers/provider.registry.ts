@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { MockProvider } from './mock.provider';
+import { OwnServerProvider } from './own-server.provider';
 import { PersonDataProvider } from './provider.interface';
 
 /**
@@ -12,9 +13,10 @@ import { PersonDataProvider } from './provider.interface';
 export class ProviderRegistry {
   private readonly adapters = new Map<string, PersonDataProvider>();
 
-  constructor(mock: MockProvider) {
+  constructor(mock: MockProvider, engine: OwnServerProvider) {
     this.register(mock);
-    // Real adapters (EndatoProvider, TrestleProvider, …) register here as they
+    this.register(engine); // our free self-hosted tier — adapter ready
+    // Paid adapters (EndatoProvider, TrestleProvider, …) register here as they
     // are implemented — no other file needs to change.
   }
 

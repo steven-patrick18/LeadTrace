@@ -11,6 +11,7 @@ import { PrismaService } from '../common/prisma.service';
 import { LeadAccessService } from '../leads/lead-access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PermissionsService } from '../permissions/permissions.service';
+import { OwnServerProvider } from '../providers/own-server.provider';
 import {
   ComplianceData,
   DncScrubProvider,
@@ -43,10 +44,16 @@ export class EnrichmentService {
     private readonly leadAccess: LeadAccessService,
     mockEnricher: MockEnrichmentProvider,
     mockDnc: MockDncProvider,
+    engine: OwnServerProvider,
   ) {
-    // Real adapters (Trestle, Endato, TLO, Twilio Lookup, BatchData) register
-    // here; which one runs is DB config (provider_settings.is_active).
-    this.enrichers = new Map([[mockEnricher.code, mockEnricher]]);
+    // Registered enrichment adapters; which one runs is DB config
+    // (provider_settings.is_active). MOCK for dev, LEADTRACE_ENGINE is our
+    // free self-hosted tier; paid adapters (Trestle, Endato, TLO, Twilio
+    // Lookup, BatchData) register here as they are implemented.
+    this.enrichers = new Map<string, EnrichmentDataProvider>([
+      [mockEnricher.code, mockEnricher],
+      [engine.code, engine],
+    ]);
     this.scrub = mockDnc; // swap for a real scrub adapter when subscribed
   }
 

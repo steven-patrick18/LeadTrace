@@ -28,7 +28,7 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
 
   private async creds(): Promise<{ apiKey: string; coCode?: string }> {
     const p = await this.prisma.providerSetting.findUnique({ where: { code: this.code } });
-    if (!p?.apiKey) throw new Error('SearchBug needs an API Key (paste your key as API Key; optional Account CO_CODE as API Secret)');
+    if (!p?.apiKey) throw new Error('SearchBug needs an API Key (as API Key) AND your CO_CODE account number (as API Secret)');
     return { apiKey: p.apiKey, coCode: p.apiSecret || undefined };
   }
 
@@ -36,25 +36,36 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
     const { apiKey, coCode } = await this.creds();
     const digits = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
     const qs = new URLSearchParams({ TYPE_API: 'api_ppl', F: digits, FORMAT: 'JSON' });
-    // CO_CODE/PASS query auth is supported alongside the Bearer header for
-    // accounts provisioned that way; the header is the documented default.
-    if (coCode) {
-      qs.set('CO_CODE', coCode);
-      qs.set('PASS', apiKey);
-    }
+
+    // Per docs: auth is HEADER-based — Authorization: Bearer <key> PLUS
+    // CO_CODE: <account number>, which SearchBug requires on every call. A
+    // browser-like User-Agent avoids their Cloudflare edge blocking the request.
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'application/json',
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+    };
+    if (coCode) headers.CO_CODE = coCode;
+
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20000);
     try {
-      const res = await fetch(`${this.base}?${qs.toString()}`, {
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-        signal: ctrl.signal,
-      });
+      const res = await fetch(`${this.base}?${qs.toString()}`, { headers, signal: ctrl.signal });
       const text = await res.text();
+      // A Cloudflare challenge (HTML, not JSON) means the request was blocked at
+      // the edge before reaching the API — almost always because the calling
+      // server's static IP is not authorized in the SearchBug account.
+      if (/<!DOCTYPE|<html|Cloudflare/i.test(text)) {
+        throw new Error(
+          `blocked at gateway (HTTP ${res.status}, Cloudflare). Authorize this server's static IP in your SearchBug account API settings, and confirm the account is prepaid with People Search enabled.`,
+        );
+      }
       let json: any = {};
       try {
         json = JSON.parse(text);
       } catch {
-        throw new Error(`SearchBug returned non-JSON (${res.status}) — check TYPE_API/credentials`);
+        throw new Error(`SearchBug returned non-JSON (HTTP ${res.status})`);
       }
       if (!res.ok) throw new Error(`SearchBug ${res.status}: ${json?.error || json?.ERROR || res.statusText}`);
       if (json?.error || json?.ERROR) throw new Error(`SearchBug: ${json.error || json.ERROR}`);

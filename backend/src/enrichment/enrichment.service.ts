@@ -24,6 +24,7 @@ import {
   DncScrubProvider,
   EnrichmentDataProvider,
   GeoEnrichment,
+  IdentityVerification,
   PersonEnrichment,
 } from './enrichment.types';
 import { GeoService } from './geo.service';
@@ -39,6 +40,7 @@ const DNC_CACHE_TTL_HOURS = 168;
 export class EnrichmentService {
   private readonly logger = new Logger(EnrichmentService.name);
   private readonly enrichers: Map<string, EnrichmentDataProvider>;
+  private readonly identityVerifier: TwilioLookupProvider; // carrier-authoritative name/address match
   private scrub: DncScrubProvider;
 
   constructor(
@@ -75,6 +77,7 @@ export class EnrichmentService {
       [numverify.code, numverify],
       [endato.code, endato],
     ]);
+    this.identityVerifier = twilio;
     this.scrub = mockDnc; // swap for a real scrub adapter when subscribed
   }
 
@@ -115,6 +118,22 @@ export class EnrichmentService {
       );
     } else {
       providerData = this.mergeEnrichments(perProvider);
+    }
+
+    // ── Section B: identity VERIFICATION (Twilio Identity Match) ──
+    // Carrier-authoritative confirmation that the lead's name+address belongs to
+    // the phone. Adds no new PII — only a per-field match + 0–100 score — and
+    // lifts (or dents) the merged accuracy score. Cache-first + spend-capped.
+    if (active.some((p) => p.code === this.identityVerifier.code)) {
+      try {
+        const v = await this.verifyIdentity(lead, ttlHours, capCents, user.id);
+        if (v.data) {
+          costCents += v.paidCents;
+          providerData = this.attachVerification(providerData, v.data);
+        }
+      } catch (e) {
+        failures.push(`identity_match: ${(e as Error).message}`);
+      }
     }
 
     // ── Section C: free/public geo (always runs, $0) ──
@@ -400,6 +419,68 @@ export class EnrichmentService {
       data: { providerId: provider.id, userId, searchKey: cacheKey, cacheHit: false, costCents: provider.costPerSearchCents },
     });
     return { data, paidCents: provider.costPerSearchCents };
+  }
+
+  /**
+   * Run Twilio Identity Match on the lead's name + best-known address, cache-first
+   * and spend-capped. Verifies the phone belongs to the claimed person against
+   * carrier records. SSN is never submitted (see the provider). Returns null data
+   * when there is nothing to verify or the account lacks the package.
+   */
+  private async verifyIdentity(
+    lead: { primaryPhone: string; firstName: string; lastName: string; address: string | null; city: string | null; state: string | null; zip: string | null },
+    ttlHours: number,
+    capCents: number,
+    userId: number,
+  ): Promise<{ data: IdentityVerification | null; paidCents: number }> {
+    const provider = await this.prisma.providerSetting.findUnique({ where: { code: this.identityVerifier.code } });
+    const cost = provider?.costPerSearchCents ?? 0;
+    const key = `idmatch:phone=${lead.primaryPhone}:name=${`${lead.firstName} ${lead.lastName}`.trim().toLowerCase()}:zip=${lead.zip ?? ''}`;
+    const res = await this.cachedPaidCall<IdentityVerification | null>(key, ttlHours, capCents, userId, async () => ({
+      data: await this.identityVerifier.verifyIdentity({
+        phone: lead.primaryPhone,
+        firstName: lead.firstName,
+        lastName: lead.lastName,
+        addressLine1: lead.address,
+        city: lead.city,
+        state: lead.state,
+        postalCode: lead.zip,
+      }),
+      costCents: cost,
+      providerCode: this.identityVerifier.code,
+    }));
+    return { data: res.data, paidCents: res.cacheHit ? 0 : res.paidCents };
+  }
+
+  /**
+   * Fold a verification result into the merged record and adjust its accuracy:
+   * a strong carrier match (score ≥ 80) nudges accuracy up, a clear no-match
+   * (≤ 20) nudges it down — the phone/person link is independently corroborated.
+   */
+  private attachVerification(base: PersonEnrichment | null, v: IdentityVerification): PersonEnrichment {
+    const data: PersonEnrichment =
+      base ?? {
+        aliases: [],
+        addresses: [],
+        phones: [],
+        emails: [],
+        ageRange: null,
+        relatives: [],
+        associates: [],
+        property: { ownership: 'unknown' },
+        socialUrls: [],
+        providerConfidence: v.summaryScore / 100,
+        sourceProvider: v.source,
+        sources: [v.source],
+      };
+    data.identityVerification = v;
+    if (typeof data.accuracyScore === 'number') {
+      const delta = v.summaryScore >= 80 ? 8 : v.summaryScore >= 70 ? 4 : v.summaryScore <= 20 ? -12 : 0;
+      data.accuracyScore = Math.max(5, Math.min(99, data.accuracyScore + delta));
+    } else {
+      data.accuracyScore = Math.round((base?.providerConfidence ?? v.summaryScore / 100) * 100);
+    }
+    return data;
   }
 
   /**

@@ -30,6 +30,22 @@ export interface EnrichedPhone {
   verifiedBy?: number;
 }
 
+/**
+ * Carrier-authoritative confirmation that a name/address BELONGS to the phone.
+ * This is a VERIFICATION result (e.g. Twilio Lookup Identity Match), not a data
+ * source — it returns match levels for data we already hold, never new PII.
+ * SSN / national ID is never submitted (see enrichment.service).
+ */
+export type IdentityMatchLevel = 'exact_match' | 'high_partial_match' | 'partial_match' | 'no_match' | 'no_data_available';
+export interface IdentityVerification {
+  summaryScore: number; // 0..100 (carrier-scored)
+  fields: Partial<Record<'firstName' | 'lastName' | 'addressLines' | 'city' | 'state' | 'postalCode' | 'dateOfBirth', IdentityMatchLevel>>;
+  verifiedName: string;
+  verifiedAddress: string | null;
+  source: string; // provider code that performed the match
+  checkedAt: string; // ISO
+}
+
 export interface PersonEnrichment {
   aliases: string[];
   addresses: EnrichedAddress[];
@@ -44,6 +60,8 @@ export interface PersonEnrichment {
   sourceProvider: string;
   /** When merged from several active providers: which ones contributed. */
   sources?: string[];
+  /** Carrier-authoritative match of the merged name+address to the phone. */
+  identityVerification?: IdentityVerification | null;
   /**
    * 0..100 cross-provider accuracy for the merged record: rises with the number
    * of providers, their individual confidence, and how much they AGREE

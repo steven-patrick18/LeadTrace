@@ -214,12 +214,12 @@ async function main() {
       code: 'TWILIO_LOOKUP',
       displayName: 'Twilio Lookup',
       description:
-        'Instant pay-as-you-go account. Returns caller-ID name (a reverse-phone identity), line type and carrier. One of the easiest APIs to get.',
+        'Instant pay-as-you-go account. Returns caller-ID name (a reverse-phone identity), line type and carrier — PLUS Identity Match, a carrier-authoritative check that a name+address belongs to the phone (0–100 accuracy score). One of the easiest APIs to get.',
       websiteUrl: 'https://www.twilio.com/lookup',
       signupUrl: 'https://www.twilio.com/try-twilio',
-      docsUrl: 'https://www.twilio.com/docs/lookup/v2-api',
+      docsUrl: 'https://www.twilio.com/docs/lookup/v2-api/identity-match',
       howToGet:
-        'Adapter IMPLEMENTED. Easiest instant signup.\n1. Create a free Twilio account at twilio.com/try-twilio (instant, small trial credit).\n2. From the Console dashboard copy your Account SID and Auth Token.\n3. Save the Account SID as API key and the Auth Token as API secret below.\n4. Record the attestation and Activate. caller_name (CNAM) ≈ $0.01/lookup, line type ≈ $0.008.',
+        'Adapter IMPLEMENTED (caller-ID + line type + Identity Match). Easiest instant signup.\n1. Create a free Twilio account at twilio.com/try-twilio (instant, small trial credit).\n2. From the Console dashboard copy your Account SID and Auth Token.\n3. Save the Account SID as API key and the Auth Token as API secret below.\n4. Record the attestation and Activate. caller_name (CNAM) ≈ $0.01, line type ≈ $0.008, Identity Match ≈ $0.10–$1.20/query (US needs no registration).\nOn Enrich, if this provider is active LeadTrace automatically verifies the lead name+address against the phone via Identity Match. Note: SSN/national ID is never submitted.',
     },
     {
       code: 'IPQS',

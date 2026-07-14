@@ -21,6 +21,14 @@ interface Enrichment {
     sourceProvider: string;
     sources?: string[];
     accuracyScore?: number;
+    identityVerification?: {
+      summaryScore: number;
+      fields: Record<string, string>;
+      verifiedName: string;
+      verifiedAddress: string | null;
+      source: string;
+      checkedAt: string;
+    } | null;
   } | null;
   geoData: {
     timezone: string | null;
@@ -201,6 +209,37 @@ export function EnrichmentPanel({ leadId, onCallableChange }: { leadId: number; 
               </span>
             </div>
           )}
+
+          {/* Carrier identity verification — Twilio Identity Match */}
+          {p?.identityVerification && (() => {
+            const v = p.identityVerification!;
+            const tone = v.summaryScore >= 80 ? 'var(--green)' : v.summaryScore >= 40 ? 'var(--amber)' : 'var(--red)';
+            const label = (m: string) =>
+              m === 'exact_match' ? '✓ exact' : m === 'high_partial_match' ? '≈ high' : m === 'partial_match' ? '≈ partial' : m === 'no_match' ? '✗ no match' : '– no data';
+            const nice: Record<string, string> = { firstName: 'First name', lastName: 'Last name', addressLines: 'Address', city: 'City', state: 'State', postalCode: 'ZIP', dateOfBirth: 'DOB' };
+            return (
+              <div style={{ margin: '12px 0', background: 'var(--panel2)', borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontWeight: 800, fontSize: '1.1rem', color: tone }}>{v.summaryScore}/100</span>
+                  <span style={{ fontSize: '0.84rem' }}>
+                    <strong>carrier identity match</strong> — does <em>{v.verifiedName}</em> own this phone?{' '}
+                    <span className="muted">(Twilio Identity Match)</span>
+                  </span>
+                </div>
+                <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {Object.entries(v.fields).map(([k, m]) => (
+                    <span
+                      key={k}
+                      className={`badge ${m === 'exact_match' ? 'CLOSED_WON' : m === 'no_match' ? 'CLOSED_LOST' : 'tier'}`}
+                      title={`${nice[k] ?? k}: ${m}`}
+                    >
+                      {nice[k] ?? k}: {label(m)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Phone quality badges */}
           {p && p.phones.length > 0 && (

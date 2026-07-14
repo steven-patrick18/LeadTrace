@@ -21,6 +21,10 @@ interface SearchResult {
   matches: Match[];
   cacheHit: boolean;
   provider: string;
+  providers?: string[];
+  queried?: string[];
+  hasIdentity?: boolean;
+  errors?: string[];
 }
 
 export function SearchPage() {
@@ -105,8 +109,25 @@ export function SearchPage() {
         {error && <div className="error">{error}</div>}
         {result && (
           <div className="muted" style={{ marginTop: 10 }}>
-            {result.matches.length} match(es) via {result.provider}
-            {result.cacheHit && ' · served from cache (no provider cost)'}
+            {result.matches.length} result(s)
+            {result.providers && result.providers.length > 0 && <> · via {result.providers.join(', ')}</>}
+            {result.cacheHit && ' · from cache (no provider cost)'}
+            {result.errors && result.errors.length > 0 && (
+              <div style={{ color: 'var(--amber)', marginTop: 4 }}>
+                Skipped: {result.errors.join(' · ')}
+              </div>
+            )}
+          </div>
+        )}
+        {/* Phone search returned a number but no identity — guide the user. */}
+        {result && phone.trim() && result.matches.length > 0 && result.hasIdentity === false && (
+          <div style={{ background: 'var(--panel2)', borderRadius: 8, padding: '10px 14px', marginTop: 10, fontSize: '0.85rem' }}>
+            📞 <strong>Phone validated, but no name/address found.</strong> Turning a phone into a person's
+            identity needs a <strong>reverse-phone provider</strong>. To enable it:
+            <ul style={{ margin: '6px 0 0 18px' }}>
+              <li>In your <strong>Trestle portal</strong>, click <em>Request Access</em> on the <strong>Reverse Phone API</strong> — then this search returns the owner automatically (no changes needed here).</li>
+              <li>Or fund <strong>BatchData</strong> (skip-trace by name works once funded).</li>
+            </ul>
           </div>
         )}
       </div>

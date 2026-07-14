@@ -40,18 +40,21 @@ export class SearchService {
     }
 
     const collected: PersonMatch[] = [];
-    const usedProviders: string[] = [];
+    const contributors: string[] = []; // providers that returned ≥1 match
+    const queried: string[] = []; // every provider we asked
     let anyLive = false;
     const errors: string[] = [];
 
     for (const provider of implemented) {
       const key = `search:${provider.code.toLowerCase()}:${searchKey}`;
+      queried.push(provider.code);
       try {
         const cached = await this.prisma.searchCache.findUnique({ where: { searchKey: key } });
         if (cached && cached.expiresAt > new Date()) {
           await this.recordUsage(provider.id, userId, key, true, 0);
-          collected.push(...(cached.response as unknown as PersonMatch[]));
-          usedProviders.push(provider.code);
+          const rows = cached.response as unknown as PersonMatch[];
+          collected.push(...rows);
+          if (rows.length) contributors.push(provider.code);
           continue;
         }
         // Spend cap + request limit (paid providers only meaningfully)
@@ -80,17 +83,23 @@ export class SearchService {
         });
         await this.recordUsage(provider.id, userId, key, false, provider.costPerSearchCents);
         collected.push(...matches);
-        usedProviders.push(provider.code);
+        if (matches.length) contributors.push(provider.code);
       } catch (e) {
         errors.push(`${provider.code}: ${(e as Error).message}`);
       }
     }
 
+    const merged = this.mergeMatches(collected);
+    // Identity is present only if some match has a real name (not the engine's
+    // "Unknown Contact" phone skeleton). Signals the UI to guide the user.
+    const hasIdentity = merged.some((m) => m.firstName && m.firstName !== 'Unknown');
     return {
-      matches: this.mergeMatches(collected),
-      cacheHit: !anyLive && usedProviders.length > 0,
-      provider: usedProviders.join('+') || 'none',
-      providers: usedProviders,
+      matches: merged,
+      cacheHit: !anyLive && contributors.length > 0,
+      provider: contributors.join('+') || 'none',
+      providers: contributors,
+      queried,
+      hasIdentity,
       errors,
       searchedAt: new Date(),
     };

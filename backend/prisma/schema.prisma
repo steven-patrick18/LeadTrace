@@ -70,6 +70,8 @@ model User {
   comments       LeadComment[]
   accessBlocks   LeadAccessBlock[] @relation("BlockedUser")
   blocksIssued   LeadAccessBlock[] @relation("BlockedBy")
+  deskSessions   DeskSession[]     @relation("DeskUser")
+  sessionsEnded  DeskSession[]     @relation("DeskEnder")
 
   @@map("users")
 }
@@ -209,15 +211,17 @@ enum ActivityType {
 }
 
 model Activity {
-  id        Int          @id @default(autoincrement())
-  leadId    Int          @map("lead_id")
-  userId    Int          @map("user_id")
-  type      ActivityType
-  detail    String
-  createdAt DateTime     @default(now()) @map("created_at")
+  id            Int          @id @default(autoincrement())
+  leadId        Int          @map("lead_id")
+  userId        Int          @map("user_id")
+  type          ActivityType
+  detail        String
+  deskSessionId Int?         @map("desk_session_id") // which seat the call was worked from
+  createdAt     DateTime     @default(now()) @map("created_at")
 
-  lead Lead @relation(fields: [leadId], references: [id])
-  user User @relation(fields: [userId], references: [id])
+  lead        Lead         @relation(fields: [leadId], references: [id])
+  user        User         @relation(fields: [userId], references: [id])
+  deskSession DeskSession? @relation(fields: [deskSessionId], references: [id])
 
   @@index([leadId, createdAt])
   @@map("activities")
@@ -468,6 +472,50 @@ model LeadAccessBlock {
 
   @@unique([leadId, userId])
   @@map("lead_access_blocks")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Desk / batch-ID sessions (shared-seat call floor)
+// ─────────────────────────────────────────────────────────────
+
+// A physical seat/desk. Its code is the "Batch ID" people type when they sit.
+model Desk {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique // e.g. DESK-01 — the batch id
+  name      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  sessions DeskSession[]
+
+  @@map("desks")
+}
+
+enum DeskSessionEnd {
+  CLOCK_OUT // user ended their own shift
+  TAKEOVER  // someone else sat down and entered the batch id
+  FORCED    // force-completed by an admin
+
+  @@map("desk_session_end")
+}
+
+model DeskSession {
+  id        Int             @id @default(autoincrement())
+  deskId    Int             @map("desk_id")
+  userId    Int             @map("user_id")
+  startedAt DateTime        @default(now()) @map("started_at")
+  endedAt   DateTime?       @map("ended_at")
+  endReason DeskSessionEnd? @map("end_reason")
+  endedById Int?            @map("ended_by")
+
+  desk    Desk       @relation(fields: [deskId], references: [id])
+  user    User       @relation("DeskUser", fields: [userId], references: [id])
+  endedBy User?      @relation("DeskEnder", fields: [endedById], references: [id])
+  calls   Activity[]
+
+  @@index([deskId, endedAt])
+  @@index([userId, endedAt])
+  @@map("desk_sessions")
 }
 
 // In-house DNC/opt-out list — AUTHORITATIVE, always checked before external scrubs.

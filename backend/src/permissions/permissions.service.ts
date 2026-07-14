@@ -40,6 +40,7 @@ export const PERMISSION_KEYS = [
   'manage_custom_fields',
   'comment_lead',
   'manage_lead_access',
+  'manage_desks',
 ] as const;
 
 @Injectable()

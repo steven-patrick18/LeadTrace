@@ -19,6 +19,8 @@ import { MockEnrichmentProvider } from './enrichment/mock-enrichment.provider';
 import { ScoringService } from './enrichment/scoring.service';
 import { CommentsController } from './comments/comments.controller';
 import { CustomFieldsController } from './custom-fields/custom-fields.controller';
+import { DesksController } from './desks/desks.controller';
+import { DesksService } from './desks/desks.service';
 import { LeadAccessController } from './leads/lead-access.controller';
 import { LeadAccessService } from './leads/lead-access.service';
 import { LeadsController } from './leads/leads.controller';
@@ -66,6 +68,7 @@ import { UsersController } from './users/users.controller';
     CustomFieldsController,
     CommentsController,
     LeadAccessController,
+    DesksController,
   ],
   providers: [
     PrismaService,
@@ -78,6 +81,7 @@ import { UsersController } from './users/users.controller';
     SearchService,
     LeadAccessService,
     LeadsService,
+    DesksService,
     NotificationsService,
     RoutingService,
     AgingScheduler,

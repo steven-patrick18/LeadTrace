@@ -48,6 +48,8 @@ const MATRIX: Record<string, [Cell, Cell, Cell, Cell, Cell]> = {
   manage_custom_fields: [false, false, false, false, true],
   comment_lead:         [true,  true,  true,  true,  true], // + server-side participant rule
   manage_lead_access:   [false, false, false, false, true],
+  // Desk / batch-id sessions: manager sees the floor, admin manages it
+  manage_desks:         [false, false, false, 'VIEW', true],
 };
 
 function cellToPermission(cell: Cell): { allowed: boolean; scope: PermissionScope } {
@@ -229,6 +231,16 @@ async function main() {
       where: { email: u.email },
       update: {},
       create: { name: u.name, email: u.email, passwordHash: hash, roleId: roleIds[u.roleCode] },
+    });
+  }
+
+  // Desks — the batch IDs people type when they sit down
+  for (let i = 1; i <= 6; i++) {
+    const code = `DESK-0${i}`;
+    await prisma.desk.upsert({
+      where: { code },
+      update: {},
+      create: { code, name: `Seat ${i}` },
     });
   }
 

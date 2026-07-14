@@ -13,6 +13,7 @@ import { IsIn, IsString, MinLength } from 'class-validator';
 import { AuditService } from '../common/audit.service';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/decorators';
 import { PrismaService } from '../common/prisma.service';
+import { DesksService } from '../desks/desks.service';
 import { EnrichmentService } from '../enrichment/enrichment.service';
 import { LeadAccessService } from '../leads/lead-access.service';
 import { PermissionsService } from '../permissions/permissions.service';
@@ -34,6 +35,7 @@ export class ActivitiesController {
     private readonly enrichment: EnrichmentService,
     private readonly audit: AuditService,
     private readonly leadAccess: LeadAccessService,
+    private readonly desks: DesksService,
   ) {}
 
   /** Log a call or note (spec: every touch is an activities row). */
@@ -58,6 +60,7 @@ export class ActivitiesController {
     // The DNC gate (enrichment spec §D): a lead marked not-callable — by the
     // enrichment scrub or the live in-house opt-out list — cannot have a CALL
     // logged. The block is never silent: it errors visibly and is audited.
+    let deskSessionId: number | null = null;
     if (dto.type === 'CALL') {
       const gate = await this.enrichment.isCallable(leadId);
       if (!gate.callable) {
@@ -72,10 +75,20 @@ export class ActivitiesController {
           reasons: gate.reasons,
         });
       }
+      // Batch-ID discipline: calls only happen from a seat. Every call is
+      // attributed to a person AND a desk session.
+      const session = await this.desks.activeSession(user.id);
+      if (!session) {
+        throw new ConflictException({
+          message: 'Enter your batch ID first — you must be clocked in at a desk to log calls',
+          reasons: ['No active desk session. Use the desk widget (top right) to clock in.'],
+        });
+      }
+      deskSessionId = session.id;
     }
 
     return this.prisma.activity.create({
-      data: { leadId, userId: user.id, type: dto.type, detail: dto.detail },
+      data: { leadId, userId: user.id, type: dto.type, detail: dto.detail, deskSessionId },
       include: { user: { select: { id: true, name: true } } },
     });
   }

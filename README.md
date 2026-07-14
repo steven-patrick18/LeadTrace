@@ -46,6 +46,8 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
 | Provider catalog/credential checks | `node backend/scripts/smoke-providers.mjs` (needs dev server) |
 | Enrichment module checks (29) | `node backend/scripts/smoke-enrichment.mjs` (needs dev server) |
 | Fields/comments/access checks (27) | `node backend/scripts/smoke-fields.mjs` (needs dev server) |
+| Desk/batch-ID checks (16) | `node backend/scripts/smoke-desks.mjs` (needs dev server) |
+| **Demo data (all areas)** | `node backend/scripts/demo-data.mjs` — leads in every status/tier, queue rows, calls, comments, fields, enrichments, DNC, desk sessions |
 | Lockdown drill | `node backend/scripts/smoke-lockdown.mjs` (needs dev server; briefly locks the system!) |
 
 ## Architecture notes
@@ -96,6 +98,21 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
 - **Compliance (spec §8)**: provider data is for sales lead-generation only.
   No feature may use it for credit, employment, insurance, or tenant-screening
   decisions (FCRA / DPPA / GLBA restricted).
+
+### Batch-ID desk sessions (shared-seat call floor)
+
+- Everyone logs in with their **own account**; sitting down means typing the
+  desk's **batch ID** (e.g. `DESK-01`) into the top-bar widget to clock in.
+- **Takeover**: if a Closer or Manager sits at an occupied seat and enters its
+  batch ID, the previous session is force-completed as a TAKEOVER, the previous
+  user is notified, and the event is audited. Switching seats auto-closes your
+  old session.
+- **Force complete**: an admin can end any open session from the Desk Floor
+  page (`manage_desks`; Manager has VIEW — sees the floor, can't manage it).
+- **Call discipline**: logging a CALL requires an active desk session, and the
+  call is stored with that session — so every call is attributed to a person
+  AND a seat, even when seats rotate. Notes work without a seat.
+- Seeded desks: `DESK-01` … `DESK-06`; admins add more on the Desk Floor page.
 
 ### Custom fields, comments, per-lead access
 

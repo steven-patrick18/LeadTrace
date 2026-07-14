@@ -1,6 +1,8 @@
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth';
 import { Bell } from './components/Bell';
+import { DeskWidget } from './components/DeskWidget';
+import { DeskFloor } from './pages/DeskFloor';
 import { ApiCosts } from './pages/ApiCosts';
 import { Dashboard } from './pages/Dashboard';
 import { DncList } from './pages/DncList';
@@ -31,6 +33,7 @@ export default function App() {
         {can('route_leads') && <Nav to="/routing" label="Routing Queue" />}
         {can('view_reports_own') && <Nav to="/dashboard" label="Dashboard" />}
         {can('view_api_costs') && <Nav to="/api-costs" label="API Costs" />}
+        {can('manage_desks') && <Nav to="/desk-floor" label="Desk Floor" />}
         {can('manage_dnc_optout') && <Nav to="/dnc" label="DNC List" />}
         {can('manage_users') && <Nav to="/users" label="Users" />}
         {can('manage_permissions') && <Nav to="/permissions" label="Permissions" />}
@@ -49,6 +52,7 @@ export default function App() {
       </nav>
       <main className="main">
         <div className="topbar">
+          <DeskWidget />
           <Bell />
         </div>
         <Routes>
@@ -59,6 +63,7 @@ export default function App() {
           <Route path="/routing" element={<RoutingQueue />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/api-costs" element={<ApiCosts />} />
+          <Route path="/desk-floor" element={<DeskFloor />} />
           <Route path="/dnc" element={<DncList />} />
           <Route path="/users" element={<Users />} />
           <Route path="/permissions" element={<Matrix />} />

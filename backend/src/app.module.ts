@@ -32,6 +32,7 @@ import { NotificationsController } from './notifications/notifications.controlle
 import { NotificationsService } from './notifications/notifications.service';
 import { PermissionsController } from './permissions/permissions.controller';
 import { PermissionsService } from './permissions/permissions.service';
+import { BatchDataProvider } from './providers/batchdata.provider';
 import { MockProvider } from './providers/mock.provider';
 import { OwnServerProvider } from './providers/own-server.provider';
 import { ProviderRegistry } from './providers/provider.registry';
@@ -81,6 +82,7 @@ import { UsersController } from './users/users.controller';
     PermissionsService,
     MockProvider,
     OwnServerProvider,
+    BatchDataProvider,
     ProviderRegistry,
     SearchService,
     LeadAccessService,

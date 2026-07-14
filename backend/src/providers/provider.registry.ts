@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { BatchDataProvider } from './batchdata.provider';
 import { MockProvider } from './mock.provider';
 import { OwnServerProvider } from './own-server.provider';
 import { PersonDataProvider } from './provider.interface';
@@ -13,11 +14,12 @@ import { PersonDataProvider } from './provider.interface';
 export class ProviderRegistry {
   private readonly adapters = new Map<string, PersonDataProvider>();
 
-  constructor(mock: MockProvider, engine: OwnServerProvider) {
+  constructor(mock: MockProvider, engine: OwnServerProvider, batchData: BatchDataProvider) {
     this.register(mock);
     this.register(engine); // our free self-hosted tier — adapter ready
-    // Paid adapters (EndatoProvider, TrestleProvider, …) register here as they
-    // are implemented — no other file needs to change.
+    this.register(batchData); // BatchData skip-tracing — adapter ready (needs balance)
+    // Remaining paid adapters (Endato, Trestle, IDI, Melissa) register here as
+    // they are implemented — no other file needs to change.
   }
 
   register(adapter: PersonDataProvider) {

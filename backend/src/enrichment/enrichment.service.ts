@@ -11,6 +11,7 @@ import { PrismaService } from '../common/prisma.service';
 import { LeadAccessService } from '../leads/lead-access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PermissionsService } from '../permissions/permissions.service';
+import { BatchDataProvider } from '../providers/batchdata.provider';
 import { OwnServerProvider } from '../providers/own-server.provider';
 import {
   ComplianceData,
@@ -45,6 +46,7 @@ export class EnrichmentService {
     mockEnricher: MockEnrichmentProvider,
     mockDnc: MockDncProvider,
     engine: OwnServerProvider,
+    batchData: BatchDataProvider,
   ) {
     // Registered enrichment adapters; which one runs is DB config
     // (provider_settings.is_active). MOCK for dev, LEADTRACE_ENGINE is our
@@ -53,6 +55,7 @@ export class EnrichmentService {
     this.enrichers = new Map<string, EnrichmentDataProvider>([
       [mockEnricher.code, mockEnricher],
       [engine.code, engine],
+      [batchData.code, batchData],
     ]);
     this.scrub = mockDnc; // swap for a real scrub adapter when subscribed
   }

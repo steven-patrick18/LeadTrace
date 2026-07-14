@@ -196,7 +196,7 @@ async function main() {
       signupUrl: 'https://batchdata.com/sign-up/',
       docsUrl: 'https://developer.batchdata.com',
       howToGet:
-        '1. Create an account at batchdata.com.\n2. In the developer portal, generate an API token (Bearer).\n3. Paste the token as API Key below and Save credentials.\n4. Record the attestation and per-hit cost, then Activate once the adapter is implemented.',
+        '1. Create an account at batchdata.com and load account balance (skip-trace is pay-per-hit).\n2. In the developer portal, generate an API token (Bearer).\n3. Paste the token as API Key below and Save credentials.\n4. Record the attestation and per-hit cost.\n5. The BatchData adapter is IMPLEMENTED — once your account has balance, click Activate and it serves live skip-trace search + enrichment. Without balance, live calls return "Insufficient balance".',
     },
     {
       code: 'MELISSA',

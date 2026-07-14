@@ -10,7 +10,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { IsBoolean, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 import { AuditService } from '../common/audit.service';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/decorators';
 import { PrismaService } from '../common/prisma.service';
@@ -33,6 +33,10 @@ class CreateDeskDto {
 class UpdateDeskDto {
   @IsOptional() @IsString() @MinLength(2) name?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+class AssignDto {
+  @IsInt() userId!: number;
 }
 
 @Controller('desks')
@@ -99,6 +103,19 @@ export class DesksController {
     const desk = await this.prisma.desk.update({ where: { id }, data: dto });
     await this.audit.log({ userId: user.id, action: 'DESK_UPDATED', ip, detail: { id, changes: Object.keys(dto) } });
     return desk;
+  }
+
+  /** Admin puts a user on a seat — same effect as them clocking in there. */
+  @RequirePermission('manage_desks')
+  @Post(':id/assign')
+  assign(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AssignDto,
+    @Ip() ip: string,
+  ) {
+    this.assertWrite(user);
+    return this.desks.assignSeat(user, id, dto.userId, ip);
   }
 
   @RequirePermission('manage_desks')

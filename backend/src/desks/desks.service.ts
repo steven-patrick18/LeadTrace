@@ -97,6 +97,61 @@ export class DesksService {
     });
   }
 
+  /**
+   * Admin assigns a user to a seat ("you're on DESK-02 today"). Same semantics
+   * as the user clocking in themselves: their open session elsewhere closes,
+   * a current occupant is taken over (and notified), and the assignee is told.
+   */
+  async assignSeat(admin: AuthUser, deskId: number, targetUserId: number, ip?: string) {
+    const desk = await this.prisma.desk.findUnique({ where: { id: deskId } });
+    if (!desk || !desk.isActive) throw new BadRequestException('Desk not found or inactive');
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
+    if (!target || !target.isActive) throw new BadRequestException('User not found or inactive');
+
+    const session = await this.prisma.$transaction(async (tx) => {
+      // Close the target's open session elsewhere
+      const theirs = await tx.deskSession.findFirst({ where: { userId: target.id, endedAt: null } });
+      if (theirs) {
+        if (theirs.deskId === desk.id) {
+          return tx.deskSession.findUniqueOrThrow({ where: { id: theirs.id }, include: { desk: true } });
+        }
+        await tx.deskSession.update({
+          where: { id: theirs.id },
+          data: { endedAt: new Date(), endReason: 'CLOCK_OUT', endedById: admin.id },
+        });
+      }
+      // Take over the seat's current occupant, if any
+      const occupied = await tx.deskSession.findFirst({
+        where: { deskId: desk.id, endedAt: null },
+        include: { user: { select: { id: true, name: true } } },
+      });
+      if (occupied) {
+        await tx.deskSession.update({
+          where: { id: occupied.id },
+          data: { endedAt: new Date(), endReason: 'TAKEOVER', endedById: admin.id },
+        });
+        await this.notifications.notify(
+          [occupied.user.id],
+          { type: 'DESK_TAKEOVER', title: `${admin.name} reassigned ${desk.code} — your desk session was closed` },
+          tx,
+        );
+      }
+      return tx.deskSession.create({ data: { deskId: desk.id, userId: target.id }, include: { desk: true } });
+    });
+
+    await this.notifications.notify(
+      [target.id],
+      { type: 'DESK_ASSIGNED', title: `${admin.name} assigned you to ${desk.code} (${desk.name})` },
+    );
+    await this.audit.log({
+      userId: admin.id,
+      action: 'DESK_ASSIGNED',
+      ip,
+      detail: { desk: desk.code, targetUserId: target.id, targetUserName: target.name },
+    });
+    return session;
+  }
+
   async clockOut(user: AuthUser, ip?: string) {
     const mine = await this.prisma.deskSession.findFirst({
       where: { userId: user.id, endedAt: null },
@@ -157,7 +212,13 @@ export class DesksService {
         _count: { select: { calls: true } },
       },
     });
+    const users = await this.prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, role: { select: { displayName: true } } },
+      orderBy: { name: 'asc' },
+    });
     return {
+      users,
       desks: desks.map((d) => ({
         id: d.id,
         code: d.code,

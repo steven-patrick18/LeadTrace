@@ -15,6 +15,7 @@ interface FloorData {
       minutes: number;
     } | null;
   }>;
+  users: Array<{ id: number; name: string; role: { displayName: string } }>;
   recentSessions: Array<{
     id: number;
     startedAt: string;
@@ -71,6 +72,18 @@ export function DeskFloor() {
     }
   };
 
+  const assign = async (deskId: number, userId: string, deskCode: string) => {
+    if (!userId) return;
+    setError('');
+    try {
+      await post(`/desks/${deskId}/assign`, { userId: Number(userId) });
+      setMsg(`Assigned to ${deskCode}. They've been notified.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
   const endLabel: Record<string, string> = {
     CLOCK_OUT: 'clocked out',
     TAKEOVER: 'taken over',
@@ -81,9 +94,10 @@ export function DeskFloor() {
     <div>
       <h1>Desk Floor {readOnly && <span className="muted" style={{ fontSize: '0.8rem' }}>(view only)</span>}</h1>
       <p className="muted" style={{ maxWidth: 760 }}>
-        Everyone signs in with their own account, then types the <strong>batch ID</strong> on their desk to clock
-        in. If a Closer or Manager sits at an occupied seat and enters its batch ID, the previous session is
-        closed as a takeover — every call is attributed to a person <em>and</em> a seat.
+        Operators clock into a seat with its <strong>desk code</strong> (e.g. DESK-01), or you can{' '}
+        <strong>assign a seat to someone</strong> from the dropdown on each desk below — they're clocked in
+        instantly and notified. Sitting at an occupied seat takes it over. Every call is attributed to a person
+        <em> and</em> a seat.
       </p>
       {msg && <div className="ok">{msg}</div>}
       {error && <div className="error">{error}</div>}
@@ -110,6 +124,25 @@ export function DeskFloor() {
               </div>
             ) : (
               <div className="muted" style={{ marginTop: 8 }}>— empty —</div>
+            )}
+            {!readOnly && d.isActive && (
+              <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                <label style={{ fontSize: '0.72rem' }}>{d.occupant ? 'Reassign seat to' : 'Assign seat to'}</label>
+                <select
+                  value=""
+                  onChange={(e) => assign(d.id, e.target.value, d.code)}
+                  style={{ width: '100%', fontSize: '0.82rem' }}
+                >
+                  <option value="">— pick a user —</option>
+                  {data.users
+                    .filter((u) => u.id !== d.occupant?.user.id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.role.displayName})
+                      </option>
+                    ))}
+                </select>
+              </div>
             )}
           </div>
         ))}

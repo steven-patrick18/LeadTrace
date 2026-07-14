@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { get, post } from '../api';
+import { ApiError, get, post } from '../api';
 import { useAuth } from '../auth';
+import { EnrichmentPanel } from '../components/EnrichmentPanel';
 
 interface Lead {
   id: number;
@@ -31,6 +32,7 @@ export function LeadDetail() {
   const [note, setNote] = useState('');
   const [noteType, setNoteType] = useState<'CALL' | 'NOTE'>('CALL');
   const [msg, setMsg] = useState('');
+  const [callable, setCallable] = useState(true);
 
   const load = async () => {
     try {
@@ -56,7 +58,11 @@ export function LeadDetail() {
       setMsg(okMsg);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      if (err instanceof ApiError && err.status === 409 && (err.body as { reasons?: string[] })?.reasons) {
+        setError(`${err.message}: ${(err.body as { reasons: string[] }).reasons.join('; ')}`);
+      } else {
+        setError(err instanceof Error ? err.message : 'Action failed');
+      }
     }
   };
 
@@ -141,6 +147,11 @@ export function LeadDetail() {
 
         <div className="card">
           <h2>Timeline</h2>
+          {can('log_activity') && !callable && noteType === 'CALL' && (
+            <div className="error" style={{ marginBottom: 8 }}>
+              ⛔ This lead is not callable (DNC/litigator) — call logging is blocked by the server.
+            </div>
+          )}
           {can('log_activity') && (
             <form onSubmit={logActivity} className="row" style={{ marginBottom: 14 }}>
               <select value={noteType} onChange={(e) => setNoteType(e.target.value as 'CALL' | 'NOTE')}>
@@ -165,6 +176,8 @@ export function LeadDetail() {
           </ul>
         </div>
       </div>
+
+      <EnrichmentPanel leadId={lead.id} onCallableChange={setCallable} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { get } from '../api';
+import { useAuth } from '../auth';
 
 interface CostRow {
   provider: { code: string; displayName: string; isActive: boolean };
@@ -10,12 +11,27 @@ interface CostRow {
   dailySpendCapCents: number;
 }
 
+interface EnrichCosts {
+  enrichmentRuns: number;
+  byStatus: Record<string, number>;
+  paidCalls: number;
+  cacheHits: number;
+  totalCostCents: number;
+  dailyCapCents: number;
+}
+
 export function ApiCosts() {
+  const { can } = useAuth();
   const [days, setDays] = useState(30);
   const [rows, setRows] = useState<CostRow[]>([]);
+  const [enrich, setEnrich] = useState<EnrichCosts | null>(null);
 
   useEffect(() => {
     get<{ providers: CostRow[] }>(`/reports/api-costs?days=${days}`).then((r) => setRows(r.providers));
+    if (can('view_enrichment_cost')) {
+      get<EnrichCosts>(`/reports/enrichment-costs?days=${days}`).then(setEnrich).catch(() => setEnrich(null));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days]);
 
   return (
@@ -56,6 +72,23 @@ export function ApiCosts() {
           Every search is cache-first — cache hits cost $0. The cache hit rate is your money saved.
         </p>
       </div>
+
+      {enrich && (
+        <div className="card">
+          <h2>Lead enrichment spend</h2>
+          <div className="grid cols4">
+            <div className="stat"><div className="num">{enrich.enrichmentRuns}</div><div className="lbl">Enrich runs</div></div>
+            <div className="stat"><div className="num">{enrich.paidCalls}</div><div className="lbl">Paid calls</div></div>
+            <div className="stat"><div className="num">{enrich.cacheHits}</div><div className="lbl">Cache hits ($0)</div></div>
+            <div className="stat"><div className="num">${(enrich.totalCostCents / 100).toFixed(2)}</div><div className="lbl">Total spend</div></div>
+          </div>
+          <p className="muted" style={{ fontSize: '0.78rem' }}>
+            Daily cap: ${(enrich.dailyCapCents / 100).toFixed(2)} — on breach, paid enrichment pauses (free geo +
+            in-house scoring keep running) and cost viewers are alerted.
+            {' '}Status counts: {Object.entries(enrich.byStatus).map(([k, v]) => `${k} ${v}`).join(' · ') || '—'}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

@@ -32,6 +32,11 @@ export const PERMISSION_KEYS = [
   'manage_permissions',
   'manage_providers',
   'system_lockdown',
+  'enrich_lead',
+  'view_enrichment',
+  'edit_score_weights',
+  'manage_dnc_optout',
+  'view_enrichment_cost',
 ] as const;
 
 @Injectable()

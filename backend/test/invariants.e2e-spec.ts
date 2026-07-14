@@ -115,6 +115,48 @@ describe('Invariant 1 — static proof: only routing (+ creation) touches assign
   });
 });
 
+describe('Enrichment scope rules — no scraping, no biometrics (static proof)', () => {
+  const ROOTS = [join(__dirname, '..', 'src'), join(__dirname, '..', '..', 'frontend', 'src')];
+  const FORBIDDEN_DEPS = [
+    'puppeteer', 'playwright', 'cheerio', 'jsdom', 'selenium', 'scrapy',
+    'sharp', 'jimp', 'canvas', 'tesseract', 'face-api', '@tensorflow', 'opencv',
+  ];
+
+  function walk(dir: string): string[] {
+    return readdirSync(dir).flatMap((name) => {
+      const p = join(dir, name);
+      return statSync(p).isDirectory() ? walk(p) : [p];
+    });
+  }
+
+  it('no scraping or image/face-processing libraries are installed', () => {
+    for (const pkgPath of [
+      join(__dirname, '..', 'package.json'),
+      join(__dirname, '..', '..', 'frontend', 'package.json'),
+    ]) {
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+      const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
+      const bad = deps.filter((d) => FORBIDDEN_DEPS.some((f) => d.includes(f)));
+      expect(bad).toEqual([]);
+    }
+  });
+
+  it('socialUrls are never fetched — no file combines socialUrls with an HTTP call', () => {
+    const offenders: string[] = [];
+    for (const root of ROOTS) {
+      for (const file of walk(root).filter((f) => /\.(ts|tsx)$/.test(f))) {
+        const content = readFileSync(file, 'utf8');
+        if (!content.includes('socialUrls')) continue;
+        // These files may mention socialUrls, but must not make HTTP calls with them.
+        if (/\bfetch\s*\(|axios|http\.get|https\.get|XMLHttpRequest/.test(content)) {
+          offenders.push(file);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe('Invariant 4 — closed leads stay closed', () => {
   it('the DB shows no closed lead with a PENDING queue row (only reopen may re-queue)', async () => {
     const bad = await prisma.lead.findMany({

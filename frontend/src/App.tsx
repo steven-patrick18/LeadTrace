@@ -3,6 +3,7 @@ import { useAuth } from './auth';
 import { Bell } from './components/Bell';
 import { ApiCosts } from './pages/ApiCosts';
 import { Dashboard } from './pages/Dashboard';
+import { DncList } from './pages/DncList';
 import { LeadDetail } from './pages/LeadDetail';
 import { Login } from './pages/Login';
 import { Matrix } from './pages/Matrix';
@@ -30,6 +31,7 @@ export default function App() {
         {can('route_leads') && <Nav to="/routing" label="Routing Queue" />}
         {can('view_reports_own') && <Nav to="/dashboard" label="Dashboard" />}
         {can('view_api_costs') && <Nav to="/api-costs" label="API Costs" />}
+        {can('manage_dnc_optout') && <Nav to="/dnc" label="DNC List" />}
         {can('manage_users') && <Nav to="/users" label="Users" />}
         {can('manage_permissions') && <Nav to="/permissions" label="Permissions" />}
         {can('manage_providers') && <Nav to="/providers" label="Providers" />}
@@ -57,6 +59,7 @@ export default function App() {
           <Route path="/routing" element={<RoutingQueue />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/api-costs" element={<ApiCosts />} />
+          <Route path="/dnc" element={<DncList />} />
           <Route path="/users" element={<Users />} />
           <Route path="/permissions" element={<Matrix />} />
           <Route path="/providers" element={<Providers />} />

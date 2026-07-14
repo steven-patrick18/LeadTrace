@@ -38,6 +38,12 @@ const MATRIX: Record<string, [Cell, Cell, Cell, Cell, Cell]> = {
   manage_permissions: [false, false, false, false, true],
   manage_providers:   [false, false, false, false, true],
   system_lockdown:    [false, false, false, false, true],
+  // Lead enrichment module
+  enrich_lead:          [true,  true,  true,  true,  true],
+  view_enrichment:      [true,  true,  true,  true,  true],
+  edit_score_weights:   [false, false, false, false, true],
+  manage_dnc_optout:    [false, false, false, true,  true],
+  view_enrichment_cost: [false, false, false, true,  true],
 };
 
 function cellToPermission(cell: Cell): { allowed: boolean; scope: PermissionScope } {
@@ -82,9 +88,25 @@ async function main() {
   const settings: Record<string, string> = {
     routing_aging_threshold_minutes: '60',
     search_cache_ttl_hours: '720',
+    enrichment_daily_cap_cents: '2500', // $25/day — paid enrichment pauses on breach
+    enrichment_cache_ttl_hours: '720', // 30 days — re-enrich within TTL is free
   };
   for (const [key, value] of Object.entries(settings)) {
     await prisma.appSetting.upsert({ where: { key }, update: {}, create: { key, value } });
+  }
+
+  // Lead-score weights (spec section E) — Admin-editable at runtime
+  const weights: Record<string, number> = {
+    phone_active_mobile: 30,
+    has_valid_email: 10,
+    property_owner: 15,
+    address_validated: 10,
+    callable: 20,
+    data_completeness_max: 15,
+    not_callable_score_cap: 25, // hard cap on the total score when callable=false
+  };
+  for (const [key, weight] of Object.entries(weights)) {
+    await prisma.scoreWeight.upsert({ where: { key }, update: {}, create: { key, weight } });
   }
 
   // Provider catalog. MOCK ships active so dev costs $0 (spec Phase 2); real

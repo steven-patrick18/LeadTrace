@@ -131,6 +131,35 @@ export class ReportsService {
     return { sinceDays: days, providers: report };
   }
 
+  /** Enrichment spend (gated by view_enrichment_cost). */
+  async enrichmentCosts(days: number) {
+    const since = new Date(Date.now() - days * 86400_000);
+    const [runs, byStatus, paidCalls, cacheHits, spend, capSetting] = await Promise.all([
+      this.prisma.leadEnrichment.count({ where: { enrichedAt: { gte: since } } }),
+      this.prisma.leadEnrichment.groupBy({ by: ['status'], _count: { _all: true } }),
+      this.prisma.providerUsage.count({
+        where: { createdAt: { gte: since }, cacheHit: false, OR: [{ searchKey: { startsWith: 'enrich:' } }, { searchKey: { startsWith: 'dnc:' } }] },
+      }),
+      this.prisma.providerUsage.count({
+        where: { createdAt: { gte: since }, cacheHit: true, OR: [{ searchKey: { startsWith: 'enrich:' } }, { searchKey: { startsWith: 'dnc:' } }] },
+      }),
+      this.prisma.providerUsage.aggregate({
+        where: { createdAt: { gte: since }, cacheHit: false, OR: [{ searchKey: { startsWith: 'enrich:' } }, { searchKey: { startsWith: 'dnc:' } }] },
+        _sum: { costCents: true },
+      }),
+      this.prisma.appSetting.findUnique({ where: { key: 'enrichment_daily_cap_cents' } }),
+    ]);
+    return {
+      sinceDays: days,
+      enrichmentRuns: runs,
+      byStatus: Object.fromEntries(byStatus.map((r) => [r.status, r._count._all])),
+      paidCalls,
+      cacheHits,
+      totalCostCents: spend._sum.costCents ?? 0,
+      dailyCapCents: Number(capSetting?.value ?? 0),
+    };
+  }
+
   /** CSV export of leads (gated by export_data). */
   async exportLeadsCsv(): Promise<string> {
     const leads = await this.prisma.lead.findMany({

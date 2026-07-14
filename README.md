@@ -44,6 +44,7 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
 | Invariant + permission tests (42) | `cd backend && npm run test:e2e` (needs dev server + DB) |
 | Full call-chain smoke (34 checks) | `node backend/scripts/smoke.mjs` (needs dev server) |
 | Provider catalog/credential checks | `node backend/scripts/smoke-providers.mjs` (needs dev server) |
+| Enrichment module checks (29) | `node backend/scripts/smoke-enrichment.mjs` (needs dev server) |
 | Lockdown drill | `node backend/scripts/smoke-lockdown.mjs` (needs dev server; briefly locks the system!) |
 
 ## Architecture notes
@@ -94,6 +95,33 @@ npm run dev                     # UI on :5173 (proxies /api to :3000)
 - **Compliance (spec §8)**: provider data is for sales lead-generation only.
   No feature may use it for credit, employment, insurance, or tenant-screening
   decisions (FCRA / DPPA / GLBA restricted).
+
+### Lead enrichment (sections A/C/D/E)
+
+- **Manual trigger**: "Enrich" on the lead detail page (`enrich_lead`). Runs
+  licensed-provider data (A, cache-first, mock in dev) → free geo (C, offline
+  tables; swap in USPS/Census adapters) → compliance scrub (D) → in-house
+  intelligence (E). Partial failures save what succeeded (`PARTIAL`).
+- **Hard scope rules, enforced by static tests**: no scraping, no photo
+  fetching/face matching, no biometrics; social data is provider-returned URL
+  strings only, displayed as links, never fetched; census stats are area-level
+  and labeled as such.
+- **The DNC gate**: the in-house `dnc_optout` table (Manager/Admin, "DNC List"
+  page) is authoritative and checked live on every CALL log — external
+  national/state DNC + litigator flags come from the pluggable scrub (mock in
+  dev; deterministic: numbers ending in 7 → national DNC, 4 → state, "13" →
+  litigator). `callable=false` ⇒ red DO-NOT-CALL banner, server refuses the
+  CALL with reasons, and the attempt is audited (`CALL_BLOCKED_DNC`).
+- **Lead score** is a transparent weighted sum (weights Admin-editable in
+  Settings; every run stores its itemized breakdown, so scores are reproducible).
+  Not-callable leads are hard-capped. **Conversion probability** is a documented
+  heuristic (score blend + the org's own win rate); a Phase-2 model trained on
+  this client's CLOSED_WON/LOST history can replace it, but the heuristic
+  fallback stays.
+- **Cost control**: $25/day cap (`enrichment_daily_cap_cents`) pauses paid
+  enrichment on breach (free geo + scoring keep running, admins alerted);
+  30-day cache TTL (`enrichment_cache_ttl_hours`) makes re-enrich free;
+  spend visible in API Costs (`view_enrichment_cost`).
 
 ### Break-glass lockdown (spec §7) — runbook
 

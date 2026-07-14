@@ -58,6 +58,12 @@ const CASES: Array<[string, string, string, unknown, string, string]> = [
   ['manage_permissions', 'GET', '/permissions/matrix', undefined, 'MANAGER', 'ADMIN'],
   ['manage_providers', 'GET', '/providers', undefined, 'MANAGER', 'ADMIN'],
   ['system_lockdown', 'GET', '/lockdown/status', undefined, 'MANAGER', 'ADMIN'],
+  // Lead enrichment module
+  ['enrich_lead', 'POST', '/leads/999999/enrich', undefined, '__NONE__', 'AGENT'],
+  ['view_enrichment', 'GET', '/leads/999999/enrichment', undefined, '__NONE__', 'AGENT'],
+  ['edit_score_weights', 'GET', '/score-weights', undefined, 'MANAGER', 'ADMIN'],
+  ['manage_dnc_optout', 'GET', '/dnc', undefined, 'AGENT', 'MANAGER'],
+  ['view_enrichment_cost', 'GET', '/reports/enrichment-costs', undefined, 'AGENT', 'MANAGER'],
 ];
 
 describe.each(CASES)('permission %s', (key, method, path, body, roleWithout, roleWith) => {

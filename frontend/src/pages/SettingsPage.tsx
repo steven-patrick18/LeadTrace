@@ -8,7 +8,79 @@ export function SettingsPage() {
     <div>
       <h1>Settings</h1>
       {can('manage_permissions') && <AppSettings />}
+      {can('edit_score_weights') && <ScoreWeights />}
       {can('system_lockdown') && <Lockdown />}
+    </div>
+  );
+}
+
+const WEIGHT_LABELS: Record<string, string> = {
+  phone_active_mobile: 'Phone is an active mobile',
+  has_valid_email: 'Has at least one email',
+  property_owner: 'Property owner',
+  address_validated: 'Address validated',
+  callable: 'Clear to call (no DNC flags)',
+  data_completeness_max: 'Data completeness (max points)',
+  not_callable_score_cap: 'Score cap when NOT callable',
+};
+
+function ScoreWeights() {
+  const [rows, setRows] = useState<Array<{ id: number; key: string; weight: number }>>([]);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+
+  const load = async () => setRows(await get('/score-weights'));
+  useEffect(() => { load(); }, []);
+
+  const save = async (key: string) => {
+    setMsg('');
+    setError('');
+    try {
+      await patch('/score-weights', { key, weight: Number(edits[key]) });
+      setMsg('Weight saved — new enrich runs use it immediately (re-enrich to rescore a lead).');
+      setEdits((e) => ({ ...e, [key]: '' }));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
+  return (
+    <div className="card">
+      <h2>Lead score weights</h2>
+      <p className="muted" style={{ fontSize: '0.8rem' }}>
+        The lead score is a transparent weighted sum — every enrichment stores its full breakdown, so scores
+        stay reproducible and auditable after weight changes.
+      </p>
+      {msg && <div className="ok">{msg}</div>}
+      {error && <div className="error">{error}</div>}
+      <table style={{ maxWidth: 640 }}>
+        <thead>
+          <tr><th>Signal</th><th>Points</th><th></th></tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key}>
+              <td>{WEIGHT_LABELS[r.key] ?? r.key} <span className="muted" style={{ fontFamily: 'monospace', fontSize: '0.72rem' }}>({r.key})</span></td>
+              <td>
+                <input
+                  type="number"
+                  min={0}
+                  style={{ width: 80 }}
+                  value={edits[r.key] !== undefined && edits[r.key] !== '' ? edits[r.key] : r.weight}
+                  onChange={(e) => setEdits((prev) => ({ ...prev, [r.key]: e.target.value }))}
+                />
+              </td>
+              <td>
+                <button className="ghost sm" disabled={!edits[r.key] || Number(edits[r.key]) === r.weight} onClick={() => save(r.key)}>
+                  Save
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

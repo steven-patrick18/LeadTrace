@@ -11,6 +11,12 @@ import { JwtAuthGuard, PermissionsGuard } from './auth/guards';
 import { AuditService } from './common/audit.service';
 import { CacheService } from './common/cache.service';
 import { PrismaService } from './common/prisma.service';
+import { EnrichmentController } from './enrichment/enrichment.controller';
+import { EnrichmentService } from './enrichment/enrichment.service';
+import { GeoService } from './enrichment/geo.service';
+import { MockDncProvider } from './enrichment/mock-dnc.provider';
+import { MockEnrichmentProvider } from './enrichment/mock-enrichment.provider';
+import { ScoringService } from './enrichment/scoring.service';
 import { LeadsController } from './leads/leads.controller';
 import { LeadsService } from './leads/leads.service';
 import { LockdownController } from './lockdown/lockdown.controller';
@@ -52,6 +58,7 @@ import { UsersController } from './users/users.controller';
     ProvidersController,
     SettingsController,
     LockdownController,
+    EnrichmentController,
   ],
   providers: [
     PrismaService,
@@ -69,6 +76,11 @@ import { UsersController } from './users/users.controller';
     ReportsService,
     LockdownService,
     LockdownGate,
+    GeoService,
+    ScoringService,
+    MockEnrichmentProvider,
+    MockDncProvider,
+    EnrichmentService,
     // Global guard order matters: authenticate, then authorize (spec §3).
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },

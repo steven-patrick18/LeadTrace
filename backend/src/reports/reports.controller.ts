@@ -35,6 +35,12 @@ export class ReportsController {
     return this.reports.apiCosts(days ? Math.min(365, Math.max(1, Number(days))) : 30);
   }
 
+  @RequirePermission('view_enrichment_cost')
+  @Get('enrichment-costs')
+  enrichmentCosts(@Query('days') days?: string) {
+    return this.reports.enrichmentCosts(days ? Math.min(365, Math.max(1, Number(days))) : 30);
+  }
+
   @RequirePermission('export_data')
   @Get('export/leads.csv')
   @Header('Content-Type', 'text/csv')

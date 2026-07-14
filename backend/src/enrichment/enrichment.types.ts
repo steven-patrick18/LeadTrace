@@ -1,0 +1,96 @@
+/**
+ * Enrichment data shapes (spec sections A, C, D, E).
+ *
+ * HARD SCOPE RULE (enforced in code and by static test):
+ * - socialUrls are provider-returned URL STRINGS only. They are stored and
+ *   displayed as links — NEVER fetched, scraped, or resolved by this system.
+ * - No photo fetching, no face matching, no biometric data of any kind.
+ * - Census/demographic data is AREA-level only, never attributed to the person.
+ */
+
+// ── Section A: licensed provider data ────────────────────────
+export interface EnrichedAddress {
+  line1: string;
+  city: string;
+  state: string;
+  zip: string;
+  county?: string;
+  type: 'current' | 'past';
+  since?: string;
+}
+
+export interface EnrichedPhone {
+  number: string; // E.164
+  lineType: 'mobile' | 'landline' | 'voip' | 'unknown';
+  carrier?: string;
+  active: boolean;
+  spamRisk: 'low' | 'med' | 'high';
+  isPrimary: boolean;
+}
+
+export interface PersonEnrichment {
+  aliases: string[];
+  addresses: EnrichedAddress[];
+  phones: EnrichedPhone[];
+  emails: string[];
+  ageRange: string | null;
+  relatives: Array<{ name: string; relation?: string }>;
+  associates: Array<{ name: string }>;
+  property: { ownership: 'own' | 'rent' | 'unknown'; estValue?: number; type?: string };
+  socialUrls: string[]; // URL strings ONLY — never fetched (see scope rule above)
+  providerConfidence: number; // 0..1
+  sourceProvider: string;
+}
+
+// ── Section C: free / public geo data ────────────────────────
+export interface GeoEnrichment {
+  city: string | null;
+  state: string | null;
+  county: string | null;
+  timezone: string | null; // IANA — localTimeNow derived from this on READ, never stored
+  areaCodeRegion: string | null;
+  addressStandardized: { line1: string | null; city: string | null; state: string | null; zip: string | null } | null;
+  addressValid: boolean;
+  censusAreaStats?: { medianIncomeBand: string; note: string }; // AREA level only
+}
+
+// ── Section D: compliance ─────────────────────────────────────
+export type DncStatus = 'on_list' | 'clear' | 'unknown';
+
+export interface ComplianceData {
+  nationalDncStatus: DncStatus;
+  stateDncStatus: DncStatus;
+  internalDncStatus: 'on_list' | 'clear'; // in-house table — authoritative, always known
+  litigatorFlag: boolean;
+  priorConsent: { hasConsent: boolean; source?: string; timestamp?: string };
+  callable: boolean; // computed gate — false blocks dialing in UI + server
+}
+
+// ── Section E: computed in-house ─────────────────────────────
+export interface Intelligence {
+  dataCompletenessPct: number;
+  leadScore: number; // 0..100
+  conversionProbability: number; // 0..1
+  conversionProbabilityMethod: 'heuristic' | 'model'; // never a black box without fallback
+  bestTimeToCall: string;
+  contactHistory: Array<{ at: string; agent: string; outcome: string }>;
+  duplicateFlag: boolean;
+  routingHint?: { userId: number; name: string; reason: string };
+  scoreBreakdown: Array<{ key: string; points: number; reason: string }>; // reproducibility
+}
+
+// ── Provider plug points ─────────────────────────────────────
+export interface EnrichmentDataProvider {
+  readonly code: string;
+  /** Cost in cents per successful live (non-cached) lookup. */
+  enrichPerson(input: { phone: string; firstName: string; lastName: string; zip?: string | null }): Promise<PersonEnrichment>;
+}
+
+export interface DncScrubProvider {
+  readonly code: string;
+  scrub(phone: string): Promise<{
+    nationalDncStatus: DncStatus;
+    stateDncStatus: DncStatus;
+    litigatorFlag: boolean;
+  }>;
+}

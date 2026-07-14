@@ -139,12 +139,13 @@ When the Sr Agent / Closer / Manager walks over to that machine:
 
 ### Custom fields, comments, per-lead access
 
-- **Custom process fields**: the Admin defines fields in Settings (text /
-  number / date / dropdown) and they appear on every lead page. Values are
-  filled by whoever holds `edit_lead` on that lead and stay editable as
-  details are confirmed with the customer; every change is written to the
-  lead timeline and the audit log. Deactivating a field hides it without
-  losing data.
+- **One editable lead card**: contact details (name, primary phone, address)
+  and the admin-defined process fields live in a single "Lead details" card,
+  all inline-editable under the `edit_lead` permission + scope (OWN /
+  ASSIGNED / ALL); read-only otherwise. Admins add new form fields right on
+  the lead page or in Settings (text / number / date / dropdown). Phone edits
+  are E.164-validated; every change is written to the lead timeline and the
+  audit log. Deactivating a field hides it without losing data.
 - **Comments** (`comment_lead`): writable by the Manager, the Admin, and the
   people who actually worked the lead (creator, assignee, routed to/from it,
   or logged activity on it) — enforced server-side, not by role name.
@@ -155,6 +156,18 @@ When the Sr Agent / Closer / Manager walks over to that machine:
   revoke any person's access to a specific lead — it disappears from their
   lists, detail view, edits, call logging, enrichment, and comments. Admins
   are immune (no self-lockout), and every revoke/restore is audited.
+
+### Reports & user oversight
+
+- **Reports page** (`view_reports_team`): date-range analysis (7/30/90/365
+  days) — leads created, calls made, win rate, average time-to-route, funnel,
+  pipeline snapshot by status/tier, activity volume per day, and a per-user
+  performance table with win rates. CSV exports (leads + performance) behind
+  `export_data`.
+- **Expanded Users page** (`manage_users`, VIEW for Manager): click any user
+  to expand their overview — active leads, calls logged, won/lost with win
+  rate, leads received, current desk, their assigned leads and recent
+  activity. Batch IDs are visible to full managers only (masked for VIEW).
 
 ### Lead enrichment (sections A/C/D/E)
 

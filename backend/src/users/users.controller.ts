@@ -59,6 +59,57 @@ export class UsersController {
     return rows;
   }
 
+  /**
+   * Per-user overview for the expanded Users page: performance counters,
+   * currently assigned leads, recent activity, live desk/batch state.
+   * VIEW scope (Manager) may read this — it's oversight, not mutation.
+   */
+  @RequirePermission('manage_users')
+  @Get(':id/overview')
+  async overview(@Param('id', ParseIntPipe) id: number) {
+    const target = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true, isActive: true, role: { select: { displayName: true } } },
+    });
+    if (!target) throw new BadRequestException('User not found');
+
+    const [createdCount, activeAssigned, callsLogged, transfersRaised, leadsReceived, closedWon, closedLost,
+      assignedLeads, recentActivity, deskSession, comments] = await Promise.all([
+      this.prisma.lead.count({ where: { createdById: id } }),
+      this.prisma.lead.count({ where: { assignedToId: id, status: { in: ['NEW', 'IN_PROGRESS', 'PENDING_ROUTING'] } } }),
+      this.prisma.activity.count({ where: { userId: id, type: 'CALL' } }),
+      this.prisma.routingQueue.count({ where: { raisedById: id } }),
+      this.prisma.routingHistory.count({ where: { toUserId: id } }),
+      this.prisma.activity.count({ where: { userId: id, type: 'STATUS_CHANGE', detail: { startsWith: 'Deal WON' } } }),
+      this.prisma.activity.count({ where: { userId: id, type: 'STATUS_CHANGE', detail: { startsWith: 'Deal lost' } } }),
+      this.prisma.lead.findMany({
+        where: { assignedToId: id },
+        orderBy: { updatedAt: 'desc' },
+        take: 10,
+        select: { id: true, firstName: true, lastName: true, primaryPhone: true, currentTier: true, status: true, updatedAt: true },
+      }),
+      this.prisma.activity.findMany({
+        where: { userId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 12,
+        select: { id: true, type: true, detail: true, createdAt: true, leadId: true },
+      }),
+      this.prisma.deskSession.findFirst({
+        where: { userId: id, endedAt: null },
+        include: { desk: { select: { code: true } } },
+      }),
+      this.prisma.leadComment.count({ where: { userId: id } }),
+    ]);
+
+    return {
+      user: target,
+      stats: { createdCount, activeAssigned, callsLogged, transfersRaised, leadsReceived, closedWon, closedLost, comments },
+      assignedLeads,
+      recentActivity,
+      desk: deskSession ? { code: deskSession.desk.code, since: deskSession.startedAt } : null,
+    };
+  }
+
   /** Everyone can see their OWN batch ID ("everyone gets their id"). */
   @RequirePermission('view_own_leads')
   @Get('my-batch-id')

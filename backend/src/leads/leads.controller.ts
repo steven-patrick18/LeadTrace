@@ -64,6 +64,7 @@ class CreateLeadDto implements CreateLeadInput {
 class UpdateLeadDto {
   @IsOptional() @IsString() @MinLength(1) firstName?: string;
   @IsOptional() @IsString() @MinLength(1) lastName?: string;
+  @IsOptional() @IsString() @MinLength(7) primaryPhone?: string;
   @IsOptional() @IsString() address?: string;
   @IsOptional() @IsString() city?: string;
   @IsOptional() @IsString() state?: string;

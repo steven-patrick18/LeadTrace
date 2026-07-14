@@ -12,6 +12,7 @@ import { Login } from './pages/Login';
 import { Matrix } from './pages/Matrix';
 import { MyLeads } from './pages/MyLeads';
 import { Providers } from './pages/Providers';
+import { Reports } from './pages/Reports';
 import { RoutingQueue } from './pages/RoutingQueue';
 import { SearchPage } from './pages/SearchPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -33,6 +34,7 @@ export default function App() {
         <Nav to="/leads" label="My Leads" />
         {can('route_leads') && <Nav to="/routing" label="Routing Queue" />}
         {can('view_reports_own') && <Nav to="/dashboard" label="Dashboard" />}
+        {can('view_reports_team') && <Nav to="/reports" label="Reports" />}
         {can('view_api_costs') && <Nav to="/api-costs" label="API Costs" />}
         {can('manage_desks') && <Nav to="/desk-floor" label="Desk Floor" />}
         {can('manage_dnc_optout') && <Nav to="/dnc" label="DNC List" />}
@@ -64,6 +66,7 @@ export default function App() {
           <Route path="/leads/:id" element={<LeadDetail />} />
           <Route path="/routing" element={<RoutingQueue />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/reports" element={<Reports />} />
           <Route path="/api-costs" element={<ApiCosts />} />
           <Route path="/desk-floor" element={<DeskFloor />} />
           <Route path="/dnc" element={<DncList />} />

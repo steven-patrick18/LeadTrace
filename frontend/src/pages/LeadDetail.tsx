@@ -3,9 +3,9 @@ import { useParams } from 'react-router-dom';
 import { ApiError, get, post } from '../api';
 import { useAuth } from '../auth';
 import { CommentsCard } from '../components/CommentsCard';
-import { CustomFieldsCard } from '../components/CustomFieldsCard';
 import { EnrichmentPanel } from '../components/EnrichmentPanel';
 import { LeadAccessCard } from '../components/LeadAccessCard';
+import { LeadInfoCard } from '../components/LeadInfoCard';
 
 interface Lead {
   id: number;
@@ -91,26 +91,7 @@ export function LeadDetail() {
       </h1>
 
       <div className="grid cols2">
-        <div className="card">
-          <h2>Details</h2>
-          <p>
-            {lead.phones.map((p) => (
-              <span key={p.id} style={{ display: 'block' }}>
-                📞 {p.phone} <span className="muted">({p.lineType ?? 'unknown'}{p.isPrimary ? ', primary' : ''})</span>
-              </span>
-            ))}
-          </p>
-          <p className="muted">
-            {lead.address && <>{lead.address}<br /></>}
-            {lead.city}, {lead.state} {lead.zip}
-          </p>
-          <p className="muted">
-            Source: {lead.sourceProvider ?? 'manual'} · Created by {lead.createdBy.name} on{' '}
-            {new Date(lead.createdAt).toLocaleDateString()}
-            <br />
-            Assigned to: <strong style={{ color: 'var(--text)' }}>{lead.assignedTo?.name ?? '—'}</strong>
-          </p>
-
+        <LeadInfoCard lead={lead} onSaved={load}>
           <h2 style={{ marginTop: 18 }}>Actions</h2>
           <div className="row">
             {can('request_transfer') && isAssignedToMe && isOpen && !isPending && lead.currentTier !== 'CLOSER' && (
@@ -152,7 +133,7 @@ export function LeadDetail() {
           )}
           {msg && <div className="ok">{msg}</div>}
           {error && <div className="error">{error}</div>}
-        </div>
+        </LeadInfoCard>
 
         <div className="card">
           <h2>Timeline</h2>
@@ -186,7 +167,6 @@ export function LeadDetail() {
         </div>
       </div>
 
-      <CustomFieldsCard leadId={lead.id} values={lead.customValues ?? []} onSaved={load} />
       <CommentsCard leadId={lead.id} />
       <EnrichmentPanel leadId={lead.id} onCallableChange={setCallable} />
       <LeadAccessCard leadId={lead.id} />

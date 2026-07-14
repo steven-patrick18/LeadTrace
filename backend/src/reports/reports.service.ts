@@ -131,6 +131,81 @@ export class ReportsService {
     return { sinceDays: days, providers: report };
   }
 
+  /**
+   * The Reports & Analysis page (view_reports_team): everything an admin or
+   * manager needs to review a period — funnel, outcomes, per-user numbers,
+   * daily activity volume, and queue timing — for a chosen day range.
+   */
+  async analysis(days: number) {
+    const since = new Date(Date.now() - days * 86400_000);
+
+    const [createdInPeriod, wonInPeriod, lostInPeriod, byStatus, byTier, funnel, perUser, activities, routed] =
+      await Promise.all([
+        this.prisma.lead.count({ where: { createdAt: { gte: since } } }),
+        this.prisma.lead.count({ where: { status: 'CLOSED_WON', updatedAt: { gte: since } } }),
+        this.prisma.lead.count({ where: { status: 'CLOSED_LOST', updatedAt: { gte: since } } }),
+        this.prisma.lead.groupBy({ by: ['status'], _count: { _all: true } }),
+        this.prisma.lead.groupBy({ by: ['currentTier'], where: { status: { notIn: ['CLOSED_WON', 'CLOSED_LOST', 'INVALID'] } }, _count: { _all: true } }),
+        this.dashboard(null).then((d) => d.funnel),
+        this.performance(null),
+        this.prisma.activity.findMany({
+          where: { createdAt: { gte: since } },
+          select: { type: true, createdAt: true },
+        }),
+        this.prisma.routingQueue.findMany({
+          where: { status: 'ROUTED', routedAt: { gte: since } },
+          select: { createdAt: true, routedAt: true, transferPoint: true },
+        }),
+      ]);
+
+    // Activity volume per day (calls vs other touches)
+    const byDay: Record<string, { calls: number; other: number }> = {};
+    for (const a of activities) {
+      const day = a.createdAt.toISOString().slice(0, 10);
+      byDay[day] ??= { calls: 0, other: 0 };
+      if (a.type === 'CALL') byDay[day].calls++;
+      else byDay[day].other++;
+    }
+
+    // Average time a lead waited in the queue before the admin routed it
+    const waits = routed.map((r) => (r.routedAt!.getTime() - r.createdAt.getTime()) / 60000);
+    const avgRoutingMinutes = waits.length ? Math.round(waits.reduce((a, b) => a + b, 0) / waits.length) : 0;
+
+    const closed = wonInPeriod + lostInPeriod;
+    return {
+      sinceDays: days,
+      summary: {
+        createdInPeriod,
+        wonInPeriod,
+        lostInPeriod,
+        winRatePct: closed ? Math.round((wonInPeriod / closed) * 100) : 0,
+        routingDecisions: routed.length,
+        avgRoutingMinutes,
+        callsInPeriod: activities.filter((a) => a.type === 'CALL').length,
+      },
+      funnel,
+      byStatus: Object.fromEntries(byStatus.map((r) => [r.status, r._count._all])),
+      openByTier: Object.fromEntries(byTier.map((r) => [r.currentTier, r._count._all])),
+      perUser,
+      activityByDay: Object.entries(byDay)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([day, counts]) => ({ day, ...counts })),
+    };
+  }
+
+  /** CSV of per-user performance (gated by export_data). */
+  async exportPerformanceCsv(): Promise<string> {
+    const rows = await this.performance(null);
+    const header = 'user,role,created,active_assigned,calls,transfers_raised,leads_received,won,lost';
+    const lines = rows.map((r) =>
+      [r.user.name, r.user.role.displayName, r.createdCount, r.activeAssigned, r.callsLogged,
+        r.transfersRaised, r.leadsReceived, r.closedWon, r.closedLost]
+        .map((v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v))
+        .join(','),
+    );
+    return [header, ...lines].join('\n');
+  }
+
   /** Enrichment spend (gated by view_enrichment_cost). */
   async enrichmentCosts(days: number) {
     const since = new Date(Date.now() - days * 86400_000);

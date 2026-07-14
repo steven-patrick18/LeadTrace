@@ -184,13 +184,17 @@ export class LeadsService {
 
   /**
    * Scoped edit (spec matrix: OWN for Agent, ASSIGNED for SS/Closer, ALL for Manager/Admin).
-   * NOTE: assigned_to / current_tier / status are NOT editable here — the routing
-   * service owns those (spec §4 invariant 1).
+   * Contact details stay editable so info confirmed with the customer can be
+   * corrected any time; changes land on the timeline. NOTE: assigned_to /
+   * current_tier / status are NOT editable here — the routing service owns
+   * those (spec §4 invariant 1).
    */
   async update(
     user: AuthUser,
     id: number,
-    data: Partial<Pick<CreateLeadInput, 'firstName' | 'lastName' | 'address' | 'city' | 'state' | 'zip'>>,
+    data: Partial<Pick<CreateLeadInput, 'firstName' | 'lastName' | 'address' | 'city' | 'state' | 'zip'>> & {
+      primaryPhone?: string;
+    },
     ip?: string,
   ) {
     const lead = await this.prisma.lead.findUnique({ where: { id } });
@@ -207,18 +211,41 @@ export class LeadsService {
       throw new ForbiddenException('edit_lead scope ASSIGNED: you may only edit leads assigned to you');
     }
 
-    const updated = await this.prisma.lead.update({
-      where: { id },
-      data: {
-        firstName: data.firstName?.trim(),
-        lastName: data.lastName?.trim(),
-        address: data.address,
-        city: data.city,
-        state: data.state,
-        zip: data.zip,
-      },
+    const newPhone = data.primaryPhone?.trim() ? toE164(data.primaryPhone) : undefined;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (newPhone && newPhone !== lead.primaryPhone) {
+        const primaryRow = await tx.leadPhone.findFirst({ where: { leadId: id, isPrimary: true } });
+        if (primaryRow) await tx.leadPhone.update({ where: { id: primaryRow.id }, data: { phone: newPhone } });
+        else await tx.leadPhone.create({ data: { leadId: id, phone: newPhone, isPrimary: true } });
+        await tx.activity.create({
+          data: {
+            leadId: id,
+            userId: user.id,
+            type: 'NOTE',
+            detail: `Primary phone corrected: ${lead.primaryPhone} → ${newPhone}`,
+          },
+        });
+      }
+      return tx.lead.update({
+        where: { id },
+        data: {
+          firstName: data.firstName?.trim(),
+          lastName: data.lastName?.trim(),
+          address: data.address,
+          city: data.city,
+          state: data.state,
+          zip: data.zip,
+          ...(newPhone ? { primaryPhone: newPhone } : {}),
+        },
+      });
     });
-    await this.audit.log({ userId: user.id, action: 'LEAD_UPDATED', ip, detail: { leadId: id } });
+    await this.audit.log({
+      userId: user.id,
+      action: 'LEAD_UPDATED',
+      ip,
+      detail: { leadId: id, fields: Object.keys(data).filter((k) => data[k as keyof typeof data] !== undefined) },
+    });
     return updated;
   }
 }

@@ -29,6 +29,22 @@ export class ReportsController {
     return this.reports.performance(await this.scopeUserId(user));
   }
 
+  /** The Reports & Analysis page — team-wide by definition. */
+  @RequirePermission('view_reports_team')
+  @Get('analysis')
+  analysis(@Query('days') days?: string) {
+    return this.reports.analysis(days ? Math.min(365, Math.max(1, Number(days))) : 30);
+  }
+
+  @RequirePermission('export_data')
+  @Get('export/performance.csv')
+  @Header('Content-Type', 'text/csv')
+  async exportPerformance(@Res() res: Response) {
+    const csv = await this.reports.exportPerformanceCsv();
+    res.setHeader('Content-Disposition', `attachment; filename="leadtrace-performance-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(csv);
+  }
+
   @RequirePermission('view_api_costs')
   @Get('api-costs')
   apiCosts(@Query('days') days?: string) {

@@ -73,39 +73,36 @@ export function LeadInfoCard({ lead, onSaved, children }: { lead: LeadInfo; onSa
     (b) => edits[builtinKey(b.key)] !== undefined && edits[builtinKey(b.key)] !== b.value,
   );
 
-  const saveBuiltins = async () => {
-    try {
-      const body: Record<string, string> = {};
-      for (const b of dirtyBuiltins) body[b.key] = edits[builtinKey(b.key)];
-      await patch(`/leads/${lead.id}`, body);
-      setEdits((e) => {
-        const next = { ...e };
-        for (const b of dirtyBuiltins) delete next[builtinKey(b.key)];
-        return next;
-      });
-      flash('Details saved.');
-      onSaved();
-    } catch (err) {
-      fail(err);
-    }
-  };
-
   // ── custom process fields ──
   const valueOf = (fieldId: number) => lead.customValues.find((v) => v.fieldId === fieldId)?.value ?? '';
   const customKey = (id: number) => `c:${id}`;
+  const dirtyCustoms = defs.filter(
+    (f) => edits[customKey(f.id)] !== undefined && edits[customKey(f.id)] !== valueOf(f.id),
+  );
 
-  const saveCustom = async (field: FieldDef) => {
+  const dirtyCount = dirtyBuiltins.length + dirtyCustoms.length;
+  const [saving, setSaving] = useState(false);
+
+  /** One Save for everything — contact details and process fields together. */
+  const saveAll = async () => {
+    if (!dirtyCount) return;
+    setSaving(true);
     try {
-      await api('PUT', `/leads/${lead.id}/custom-values`, { fieldId: field.id, value: edits[customKey(field.id)] ?? '' });
-      setEdits((e) => {
-        const next = { ...e };
-        delete next[customKey(field.id)];
-        return next;
-      });
-      flash(`"${field.label}" saved.`);
+      if (dirtyBuiltins.length) {
+        const body: Record<string, string> = {};
+        for (const b of dirtyBuiltins) body[b.key] = edits[builtinKey(b.key)];
+        await patch(`/leads/${lead.id}`, body);
+      }
+      for (const f of dirtyCustoms) {
+        await api('PUT', `/leads/${lead.id}/custom-values`, { fieldId: f.id, value: edits[customKey(f.id)] ?? '' });
+      }
+      setEdits({});
+      flash(`Saved ${dirtyCount} change${dirtyCount > 1 ? 's' : ''}.`);
       onSaved();
     } catch (err) {
       fail(err);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -140,6 +137,9 @@ export function LeadInfoCard({ lead, onSaved, children }: { lead: LeadInfo; onSa
               ) : (
                 <span>{b.value || <span className="muted">—</span>}</span>
               ),
+              dirtyBuiltins.some((d) => d.key === b.key)
+                ? <span className="muted" style={{ fontSize: '0.72rem' }}>edited</span>
+                : undefined,
             ),
           )}
           {defs.map((f) => {
@@ -162,15 +162,23 @@ export function LeadInfoCard({ lead, onSaved, children }: { lead: LeadInfo; onSa
                   style={{ width: '100%', maxWidth: 300 }}
                 />
               ),
-              canEdit && dirty ? <button className="sm" onClick={() => saveCustom(f)}>Save</button> : undefined,
+              dirty ? <span className="muted" style={{ fontSize: '0.72rem' }}>edited</span> : undefined,
             );
           })}
         </tbody>
       </table>
 
-      <div className="row" style={{ marginTop: 12 }}>
-        {canEdit && dirtyBuiltins.length > 0 && (
-          <button onClick={saveBuiltins}>Save details ({dirtyBuiltins.length})</button>
+      <div className="row" style={{ marginTop: 12, alignItems: 'center' }}>
+        {canEdit && (
+          <>
+            <button onClick={saveAll} disabled={saving || dirtyCount === 0}>
+              {saving ? 'Saving…' : dirtyCount > 0 ? `💾 Save changes (${dirtyCount})` : '💾 Save changes'}
+            </button>
+            {dirtyCount > 0 && (
+              <button className="ghost sm" onClick={() => setEdits({})}>Discard</button>
+            )}
+            {dirtyCount === 0 && <span className="muted" style={{ fontSize: '0.75rem' }}>no unsaved changes</span>}
+          </>
         )}
         {canAddFields && (
           <button className="ghost sm" onClick={() => setShowNewField(!showNewField)}>

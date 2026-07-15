@@ -34,34 +34,20 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
     return { apiKey: p.apiKey, coCode: p.apiSecret };
   }
 
-  private async reversePhone(phone: string): Promise<any> {
+  /** Shared GET: CO_CODE+PASS query auth, browser UA, defensive error handling. */
+  private async apiGet(params: Record<string, string>): Promise<any> {
     const { apiKey, coCode } = await this.creds();
-    const digits = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
-    // Format verified against the LIVE API (their error messages are explicit):
-    // auth is CO_CODE + PASS as QUERY params, and the search selector is
-    // TYPE=api_ppl (TYPE_API is only used by the status endpoint).
-    const qs = new URLSearchParams({
-      CO_CODE: coCode,
-      PASS: apiKey,
-      TYPE: 'api_ppl',
-      F: digits,
-      FORMAT: 'JSON',
-    });
-    // Browser-like User-Agent keeps their Cloudflare edge from challenging the request.
+    const qs = new URLSearchParams({ CO_CODE: coCode, PASS: apiKey, FORMAT: 'JSON', ...params });
     const headers: Record<string, string> = {
       Accept: 'application/json',
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
     };
-
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 20000);
+    const timer = setTimeout(() => ctrl.abort(), 25000);
     try {
       const res = await fetch(`${this.base}?${qs.toString()}`, { headers, signal: ctrl.signal });
       const text = await res.text();
-      // A Cloudflare challenge (HTML, not JSON) means the request was blocked at
-      // the edge before reaching the API — ask SearchBug support to allowlist
-      // this server's IP (already done once; re-check if it recurs).
       if (/<!DOCTYPE|<html|Cloudflare/i.test(text)) {
         throw new Error(
           `blocked at gateway (HTTP ${res.status}, Cloudflare). Ask SearchBug support to allowlist this server's IP for API access.`,
@@ -73,7 +59,6 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
       } catch {
         throw new Error(`SearchBug returned non-JSON (HTTP ${res.status})`);
       }
-      // Live error shape: {"Status":"Error","Data":null,"Error":"..."}
       const errMsg = json?.Error || json?.error || json?.ERROR;
       if (errMsg) throw new Error(`SearchBug: ${errMsg}`);
       if (!res.ok) throw new Error(`SearchBug ${res.status}: ${res.statusText}`);
@@ -81,6 +66,30 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private async reversePhone(phone: string): Promise<any> {
+    const digits = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+    // Format verified live: TYPE=api_ppl selects reverse phone; F is the number.
+    return this.apiGet({ TYPE: 'api_ppl', F: digits });
+  }
+
+  /**
+   * REGULATED — SearchBug Background Report (TYPE=api_back, ~$15). Returns
+   * criminal records, vehicles, and civil filings on top of the identity data.
+   * This is an FCRA/DPPA-covered product; the CALLER (background.service) is
+   * responsible for the permissible-purpose gate, attestation, and audit — this
+   * method only performs the request the client's own account is entitled to.
+   * Requires the client's SearchBug account to have Background Report enabled;
+   * otherwise the API returns a "product not enabled" error we surface as-is.
+   */
+  async backgroundReport(input: { phone?: string; firstName?: string; lastName?: string; zip?: string | null }): Promise<any> {
+    const params: Record<string, string> = { TYPE: 'api_back' };
+    if (input.phone) params.F = input.phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+    if (input.firstName) params.FNAME = input.firstName;
+    if (input.lastName) params.LNAME = input.lastName;
+    if (input.zip) params.ZIP = input.zip;
+    return this.apiGet(params);
   }
 
   private e164(v: unknown): string | null {
@@ -271,6 +280,67 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
       socialUrls: [], // SearchBug people search returns no social; never fetched
       providerConfidence: nm.first ? 0.9 : 0.4,
       sourceProvider: this.code,
+    };
+  }
+
+  /**
+   * Parse a Background Report (api_back) into a clean, regulated-data shape.
+   * Defensive across SearchBug's nesting; unknown sections come back empty.
+   * The identity block reuses the same parsers as reverse phone.
+   */
+  parseBackground(json: any): {
+    identity: { name: string; dob: string | null; addresses: PersonEnrichment['addresses'] };
+    criminalRecords: Array<Record<string, string>>;
+    vehicles: Array<Record<string, string>>;
+    civil: { bankruptcies: number; liens: number; judgments: number };
+  } {
+    const person = this.records(json)[0] ?? json?.people?.person ?? json ?? {};
+    const nm = this.nameOf(person);
+    const dobRaw = this.list(person?.DOBs, 'DOB')[0];
+
+    const crim = [
+      ...this.list(person?.criminalRecords, 'criminalRecord'),
+      ...this.list(person?.criminalRecords, 'record'),
+      ...this.list(json?.criminalRecords, 'criminalRecord'),
+    ];
+    const criminalRecords = crim.map((c: any) => ({
+      offense: c?.offenseDescription ?? c?.offense ?? '',
+      caseNumber: c?.caseNumber ?? '',
+      caseType: c?.caseType ?? '',
+      category: c?.category ?? '',
+      state: c?.state ?? '',
+      county: c?.county ?? '',
+      agency: c?.arrestingAgency ?? '',
+      status: c?.status ?? '',
+      disposition: c?.disposition ?? '',
+      arrestDate: c?.arrestDate ?? '',
+      offenseDate: c?.offenseDate ?? '',
+    }));
+
+    const veh = [
+      ...this.list(person?.vehicles, 'vehicle'),
+      ...this.list(json?.vehicles, 'vehicle'),
+    ];
+    const vehicles = veh.map((v: any) => ({
+      vin: v?.VIN ?? v?.vin ?? '',
+      make: v?.make ?? '',
+      model: v?.model ?? '',
+      year: String(v?.year ?? ''),
+      type: v?.type ?? '',
+      color: v?.primaryColor ?? v?.color ?? '',
+      bodyStyle: v?.bodyStyle ?? '',
+    }));
+
+    const cr = person?.civilRecords ?? json?.civilRecords ?? {};
+    return {
+      identity: { name: nm.full, dob: typeof dobRaw === 'string' ? dobRaw : null, addresses: this.addressesOf(person) },
+      criminalRecords: criminalRecords.filter((c) => c.offense || c.caseNumber),
+      vehicles: vehicles.filter((v) => v.vin || v.make),
+      civil: {
+        bankruptcies: Number(cr?.numberOfBankruptcies ?? 0) || 0,
+        liens: Number(cr?.numberOfLiens ?? 0) || 0,
+        judgments: Number(cr?.numberOfJudgments ?? 0) || 0,
+      },
     };
   }
 }

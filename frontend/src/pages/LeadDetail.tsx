@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { ApiError, get, post } from '../api';
 import { useAuth } from '../auth';
+import { BackgroundCard } from '../components/BackgroundCard';
 import { CommentsCard } from '../components/CommentsCard';
 import { EnrichmentPanel } from '../components/EnrichmentPanel';
 import { LeadAccessCard } from '../components/LeadAccessCard';
@@ -176,6 +177,7 @@ export function LeadDetail() {
 
       <CommentsCard leadId={lead.id} />
       <EnrichmentPanel leadId={lead.id} onCallableChange={setCallable} />
+      <BackgroundCard leadId={lead.id} />
       <LeadAccessCard leadId={lead.id} />
     </div>
   );

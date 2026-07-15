@@ -94,6 +94,7 @@ model User {
   sessionsEnded  DeskSession[]     @relation("DeskEnder")
   batchSessions  BatchSession[]    @relation("BatchUser")
   batchInitiated BatchSession[]    @relation("BatchInitiator")
+  backgroundRuns LeadBackgroundReport[] @relation("BackgroundRunBy")
 
   @@map("users")
 }
@@ -154,6 +155,7 @@ model Lead {
   customValues   LeadCustomValue[]
   comments       LeadComment[]
   accessBlocks   LeadAccessBlock[]
+  backgroundReports LeadBackgroundReport[]
 
   @@index([assignedToId, status])
   @@index([currentTier, status])
@@ -595,6 +597,26 @@ model DeskSession {
 }
 
 // In-house DNC/opt-out list — AUTHORITATIVE, always checked before external scrubs.
+// Regulated data (criminal / vehicle / background). Stored SEPARATELY from
+// normal enrichment so it is access-controlled on its own and every pull is
+// attributable. Only written when the compliance module is enabled and the
+// caller holds run_background_report. Append-only in spirit (kept for audit).
+model LeadBackgroundReport {
+  id        Int      @id @default(autoincrement())
+  leadId    Int      @map("lead_id")
+  data      Json // parsed regulated record
+  purpose   String // the permissible purpose stated at run time
+  costCents Int      @default(0) @map("cost_cents")
+  runById   Int      @map("run_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lead  Lead @relation(fields: [leadId], references: [id])
+  runBy User @relation("BackgroundRunBy", fields: [runById], references: [id])
+
+  @@index([leadId])
+  @@map("lead_background_reports")
+}
+
 model DncOptout {
   id        Int      @id @default(autoincrement())
   phone     String   @unique // E.164

@@ -3,6 +3,7 @@ import { PermissionScope } from '@prisma/client';
 import { AuditService } from '../common/audit.service';
 import { CacheService } from '../common/cache.service';
 import { PrismaService } from '../common/prisma.service';
+import { PERMISSION_MATRIX } from './permission-matrix';
 
 export interface ResolvedPermission {
   allowed: boolean;
@@ -13,35 +14,10 @@ const CACHE_PREFIX = 'perm:role:';
 const CACHE_TTL_SECONDS = 300; // safety TTL; explicit invalidation on every edit
 
 /** The canonical permission keys. The matrix editor may only toggle these. */
-export const PERMISSION_KEYS = [
-  'search_providers',
-  'create_lead',
-  'view_own_leads',
-  'view_all_leads',
-  'edit_lead',
-  'log_activity',
-  'request_transfer',
-  'route_leads',
-  'close_deal',
-  'send_back',
-  'view_reports_team',
-  'view_reports_own',
-  'view_api_costs',
-  'export_data',
-  'manage_users',
-  'manage_permissions',
-  'manage_providers',
-  'system_lockdown',
-  'enrich_lead',
-  'view_enrichment',
-  'edit_score_weights',
-  'manage_dnc_optout',
-  'view_enrichment_cost',
-  'manage_custom_fields',
-  'comment_lead',
-  'manage_lead_access',
-  'manage_desks',
-] as const;
+// Single source of truth: the keys are exactly those in the default matrix, so
+// adding a permission there (and to the boot-time sync) automatically makes it
+// editable on the Permissions page — no separate list to keep in step.
+export const PERMISSION_KEYS = Object.keys(PERMISSION_MATRIX) as readonly string[];
 
 @Injectable()
 export class PermissionsService {

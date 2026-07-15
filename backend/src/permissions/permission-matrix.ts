@@ -48,6 +48,12 @@ export const PERMISSION_MATRIX: Record<string, [Cell, Cell, Cell, Cell, Cell]> =
   manage_desks:         [false, false, false, 'VIEW', true],
   // Offices: admin creates/renames; manager can view the list (dropdowns)
   manage_offices:       [false, false, false, 'VIEW', true],
+  // ── Regulated data (FCRA/DPPA) — OFF by default for every role. A reseller
+  // client turns this on deliberately: enable the module + record a
+  // permissible-use attestation in Settings, then grant these on the
+  // Permissions page to the specific roles that have a lawful purpose. ──
+  view_regulated_data:    [false, false, false, false, false],
+  run_background_report:  [false, false, false, false, false],
 };
 
 export function cellToPermission(cell: Cell): { allowed: boolean; scope: PermissionScope } {

@@ -11,8 +11,80 @@ export function SettingsPage() {
       {can('manage_custom_fields') && <CustomFieldDefs />}
       {can('manage_custom_fields') && <TierStatusManager />}
       {can('manage_permissions') && <AppSettings />}
+      {can('manage_permissions') && <RegulatedDataModule />}
       {can('edit_score_weights') && <ScoreWeights />}
       {can('system_lockdown') && <Lockdown />}
+    </div>
+  );
+}
+
+/**
+ * Regulated-data (FCRA/DPPA) module control. OFF by default. Enabling it
+ * requires recording a permissible-use attestation; even then, the actual
+ * criminal/background pulls are separately permissioned and audited.
+ */
+function RegulatedDataModule() {
+  const [cfg, setCfg] = useState<{ enabled: boolean; attestation: string } | null>(null);
+  const [attestation, setAttestation] = useState('');
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+
+  const load = async () => {
+    const c = await get<{ enabled: boolean; attestation: string }>('/regulated-data/config');
+    setCfg(c);
+    setAttestation(c.attestation);
+  };
+  useEffect(() => { load().catch(() => setCfg({ enabled: false, attestation: '' })); }, []);
+
+  const save = async (enabled: boolean) => {
+    setMsg(''); setError('');
+    try {
+      await post('/regulated-data/configure', { enabled, attestation });
+      setMsg(enabled ? 'Regulated-data module enabled.' : 'Regulated-data module disabled.');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
+  if (!cfg) return null;
+  return (
+    <div className="card" style={{ borderColor: 'var(--amber)' }}>
+      <h2>⚖️ Regulated data (FCRA / DPPA) — background &amp; criminal records</h2>
+      <div style={{ background: '#4d3b1033', border: '1px solid var(--amber)', borderRadius: 8, padding: '10px 14px', fontSize: '0.86rem', margin: '8px 0 14px' }}>
+        <strong>Off by default.</strong> Criminal records, vehicles, and background reports are FCRA/DPPA-regulated.
+        Enable this <strong>only</strong> if you have a lawful permissible purpose and your SearchBug account has the
+        Background Report product approved. Sales / marketing is <strong>not</strong> a permissible purpose.
+        Every pull is separately permissioned (<code>run_background_report</code>) and audit-logged.
+      </div>
+      <div className="field" style={{ marginBottom: 10 }}>
+        <label>Permissible-use attestation (your lawful basis — recorded &amp; audited)</label>
+        <textarea
+          value={attestation}
+          onChange={(e) => setAttestation(e.target.value)}
+          rows={3}
+          placeholder="e.g. Licensed collections agency; consumer debt collection under FDCPA/FCRA §604(a)(3)(A). Access limited to accounts in active collection."
+          style={{ width: '100%', resize: 'vertical' }}
+        />
+      </div>
+      <div className="row" style={{ alignItems: 'center', gap: 10 }}>
+        <span className={`badge ${cfg.enabled ? 'CLOSED_WON' : 'INVALID'}`}>{cfg.enabled ? 'ENABLED' : 'disabled'}</span>
+        {cfg.enabled ? (
+          <>
+            <button onClick={() => save(true)}>Save attestation</button>
+            <button className="danger" onClick={() => save(false)}>Disable module</button>
+          </>
+        ) : (
+          <button className="warn" disabled={attestation.trim().length < 20} onClick={() => save(true)}>
+            Enable regulated data
+          </button>
+        )}
+        <span className="muted" style={{ fontSize: '0.78rem' }}>
+          Then grant <code>view_regulated_data</code> / <code>run_background_report</code> on the Permissions page.
+        </span>
+      </div>
+      {msg && <div className="ok">{msg}</div>}
+      {error && <div className="error">{error}</div>}
     </div>
   );
 }

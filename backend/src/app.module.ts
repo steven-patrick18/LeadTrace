@@ -8,6 +8,8 @@ import { ActivitiesController } from './activities/activities.controller';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { JwtAuthGuard, PermissionsGuard } from './auth/guards';
+import { BackgroundController } from './background/background.controller';
+import { BackgroundService } from './background/background.service';
 import { AuditService } from './common/audit.service';
 import { CacheService } from './common/cache.service';
 import { PrismaService } from './common/prisma.service';
@@ -86,6 +88,7 @@ import { UsersController } from './users/users.controller';
     TierStatusesController,
     SystemController,
     OfficesController,
+    BackgroundController,
   ],
   providers: [
     PrismaService,
@@ -105,6 +108,7 @@ import { UsersController } from './users/users.controller';
     EndatoProvider,
     SearchBugProvider,
     ProviderCatalogService,
+    BackgroundService,
     ProviderRegistry,
     SearchService,
     LeadAccessService,

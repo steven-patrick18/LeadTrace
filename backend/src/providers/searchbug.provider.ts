@@ -26,27 +26,33 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
 
   constructor(private readonly prisma: PrismaService) {}
 
-  private async creds(): Promise<{ apiKey: string; coCode?: string }> {
+  private async creds(): Promise<{ apiKey: string; coCode: string }> {
     const p = await this.prisma.providerSetting.findUnique({ where: { code: this.code } });
-    if (!p?.apiKey) throw new Error('SearchBug needs an API Key (as API Key) AND your CO_CODE account number (as API Secret)');
-    return { apiKey: p.apiKey, coCode: p.apiSecret || undefined };
+    if (!p?.apiKey || !p?.apiSecret) {
+      throw new Error('SearchBug needs BOTH the API Key (as API Key) and your CO_CODE account number (as API Secret)');
+    }
+    return { apiKey: p.apiKey, coCode: p.apiSecret };
   }
 
   private async reversePhone(phone: string): Promise<any> {
     const { apiKey, coCode } = await this.creds();
     const digits = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
-    const qs = new URLSearchParams({ TYPE_API: 'api_ppl', F: digits, FORMAT: 'JSON' });
-
-    // Per docs: auth is HEADER-based — Authorization: Bearer <key> PLUS
-    // CO_CODE: <account number>, which SearchBug requires on every call. A
-    // browser-like User-Agent avoids their Cloudflare edge blocking the request.
+    // Format verified against the LIVE API (their error messages are explicit):
+    // auth is CO_CODE + PASS as QUERY params, and the search selector is
+    // TYPE=api_ppl (TYPE_API is only used by the status endpoint).
+    const qs = new URLSearchParams({
+      CO_CODE: coCode,
+      PASS: apiKey,
+      TYPE: 'api_ppl',
+      F: digits,
+      FORMAT: 'JSON',
+    });
+    // Browser-like User-Agent keeps their Cloudflare edge from challenging the request.
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${apiKey}`,
       Accept: 'application/json',
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
     };
-    if (coCode) headers.CO_CODE = coCode;
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20000);
@@ -54,11 +60,11 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
       const res = await fetch(`${this.base}?${qs.toString()}`, { headers, signal: ctrl.signal });
       const text = await res.text();
       // A Cloudflare challenge (HTML, not JSON) means the request was blocked at
-      // the edge before reaching the API — almost always because the calling
-      // server's static IP is not authorized in the SearchBug account.
+      // the edge before reaching the API — ask SearchBug support to allowlist
+      // this server's IP (already done once; re-check if it recurs).
       if (/<!DOCTYPE|<html|Cloudflare/i.test(text)) {
         throw new Error(
-          `blocked at gateway (HTTP ${res.status}, Cloudflare). Authorize this server's static IP in your SearchBug account API settings, and confirm the account is prepaid with People Search enabled.`,
+          `blocked at gateway (HTTP ${res.status}, Cloudflare). Ask SearchBug support to allowlist this server's IP for API access.`,
         );
       }
       let json: any = {};
@@ -67,8 +73,10 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
       } catch {
         throw new Error(`SearchBug returned non-JSON (HTTP ${res.status})`);
       }
-      if (!res.ok) throw new Error(`SearchBug ${res.status}: ${json?.error || json?.ERROR || res.statusText}`);
-      if (json?.error || json?.ERROR) throw new Error(`SearchBug: ${json.error || json.ERROR}`);
+      // Live error shape: {"Status":"Error","Data":null,"Error":"..."}
+      const errMsg = json?.Error || json?.error || json?.ERROR;
+      if (errMsg) throw new Error(`SearchBug: ${errMsg}`);
+      if (!res.ok) throw new Error(`SearchBug ${res.status}: ${res.statusText}`);
       return json;
     } finally {
       clearTimeout(timer);
@@ -89,13 +97,20 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
     return 'unknown';
   }
 
-  /** SearchBug nests the person under several possible keys. */
+  /**
+   * SearchBug nests the person under several possible keys. The live API wraps
+   * everything in {"Status":"OK","Data":...} — unwrap Data first, then search
+   * the usual containers.
+   */
   private records(json: any): any[] {
-    const arr = json?.records ?? json?.people ?? json?.results ?? json?.data ?? json?.person ?? json?.RECORDS;
+    const root = json?.Data ?? json;
+    const arr =
+      root?.records ?? root?.people ?? root?.persons ?? root?.results ?? root?.data ?? root?.person ?? root?.RECORDS;
     if (Array.isArray(arr)) return arr;
     if (arr && typeof arr === 'object') return [arr];
+    if (Array.isArray(root)) return root;
     // Root itself may be the person record.
-    return json?.firstName || json?.lastName ? [json] : [];
+    return root?.firstName || root?.lastName ? [root] : [];
   }
 
   private ageFromDob(dob: any): string | null {

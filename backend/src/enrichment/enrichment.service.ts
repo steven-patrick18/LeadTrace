@@ -104,7 +104,15 @@ export class EnrichmentService {
     // fatal — the others still contribute (PARTIAL). Fields confirmed by 2+
     // providers get a higher accuracy score.
     const input = { phone: lead.primaryPhone, firstName: lead.firstName, lastName: lead.lastName, zip: lead.zip };
-    const active = await this.prisma.providerSetting.findMany({ where: { isActive: true } });
+    // Cost control: enrich runs providers whose depth level is within THIS
+    // user's enrich level. A level-1 user only triggers cheap providers; a
+    // level-3 user unlocks the deep (expensive) ones. Set per user on the
+    // Users page; set per provider on the Providers page.
+    const me = await this.prisma.user.findUnique({ where: { id: user.id }, select: { enrichLevel: true } });
+    const userLevel = me?.enrichLevel ?? 1;
+    const active = await this.prisma.providerSetting.findMany({
+      where: { isActive: true, enrichLevel: { lte: userLevel } },
+    });
     const implemented = active.filter((p) => this.enrichers.has(p.code));
     const perProvider: Array<{ code: string; data: PersonEnrichment }> = [];
     for (const p of implemented) {
@@ -118,7 +126,9 @@ export class EnrichmentService {
     }
     if (!perProvider.length) {
       failures.push(
-        implemented.length ? 'no active provider returned data' : 'no active data provider — activate one on the Providers page',
+        implemented.length
+          ? 'no active provider returned data'
+          : `no data provider available at your enrich level (${userLevel}) — raise the level or lower a provider's level`,
       );
     } else {
       providerData = this.mergeEnrichments(perProvider);

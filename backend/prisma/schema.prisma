@@ -70,6 +70,7 @@ model User {
   roleId       Int      @map("role_id")
   reportsToId  Int?     @map("reports_to")
   officeId     Int?     @map("office_id")
+  enrichLevel  Int      @default(1) @map("enrich_level") // max provider depth this user may enrich to (1-3)
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")
 
@@ -283,6 +284,12 @@ model ProviderSetting {
   dailySpendCapCents     Int      @default(0) @map("daily_spend_cap_cents") // 0 = no cap
   dailyRequestLimit      Int      @default(0) @map("daily_request_limit") // max live API calls/day, 0 = unlimited
   cacheTtlHours          Int      @default(720) @map("cache_ttl_hours")
+  // Cost-tiering: cheap providers run on every SEARCH (agent lookup); expensive
+  // ones run only on ENRICH of a converted lead, and only when the enriching
+  // user's level is >= this provider's level. Reduces daily spend since most
+  // searches never become leads.
+  runOnSearch            Boolean  @default(true) @map("run_on_search")
+  enrichLevel            Int      @default(1) @map("enrich_level") // 1 basic … 3 deep
   // Credentials live server-side ONLY — never returned by the API (spec §8 NFR:
   // provider keys never reach the browser). GET exposes hasCredentials/last4.
   apiKey                 String?  @map("api_key")

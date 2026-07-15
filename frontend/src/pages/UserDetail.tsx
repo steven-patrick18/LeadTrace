@@ -9,6 +9,7 @@ interface Overview {
     role: { id: number; roleCode: string; displayName: string };
     reportsTo: { id: number; name: string } | null;
     office: { id: number; name: string } | null;
+    enrichLevel: number;
   };
   stats: {
     createdCount: number; activeAssigned: number; callsLogged: number; transfersRaised: number;
@@ -141,6 +142,7 @@ function EditProfile({
   const [password, setPassword] = useState('');
   const [officeId, setOfficeId] = useState(u.office ? String(u.office.id) : '');
   const [offices, setOffices] = useState<OfficeOpt[]>([]);
+  const [enrichLevel, setEnrichLevel] = useState(String(u.enrichLevel ?? 1));
 
   useEffect(() => {
     get<OfficeOpt[]>('/offices').then(setOffices).catch(() => setOffices([]));
@@ -149,7 +151,8 @@ function EditProfile({
   const dirty =
     name !== u.name || email !== u.email || roleId !== String(u.role.id) ||
     batchId !== (u.batchId ?? '') || password.length > 0 ||
-    officeId !== (u.office ? String(u.office.id) : '');
+    officeId !== (u.office ? String(u.office.id) : '') ||
+    enrichLevel !== String(u.enrichLevel ?? 1);
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -163,6 +166,7 @@ function EditProfile({
         ...(officeId !== (u.office ? String(u.office.id) : '')
           ? { officeId: officeId ? Number(officeId) : null }
           : {}),
+        ...(enrichLevel !== String(u.enrichLevel ?? 1) ? { enrichLevel: Number(enrichLevel) } : {}),
       });
       setPassword('');
       onSaved('Profile saved.');
@@ -228,6 +232,14 @@ function EditProfile({
               {offices.map((o) => (
                 <option key={o.id} value={o.id}>{o.name}{o.isActive ? '' : ' (inactive)'}</option>
               ))}
+            </select>
+          </div>
+          <div className="field">
+            <label>Enrich level (max provider depth &amp; cost)</label>
+            <select value={enrichLevel} onChange={(e) => setEnrichLevel(e.target.value)}>
+              <option value="1">Level 1 — basic (cheapest)</option>
+              <option value="2">Level 2 — standard</option>
+              <option value="3">Level 3 — deep (all providers)</option>
             </select>
           </div>
           <div className="field">

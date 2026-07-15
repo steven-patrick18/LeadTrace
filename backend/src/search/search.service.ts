@@ -33,10 +33,14 @@ export class SearchService {
     // Query EVERY active provider with an adapter; each is independently
     // cache-first and cap/limit-gated. Results are merged and deduped by phone,
     // with a match cross-verified by more providers ranked higher.
-    const active = await this.prisma.providerSetting.findMany({ where: { isActive: true } });
+    // Cost control: SEARCH only queries providers flagged runOnSearch (the cheap
+    // tier). Deep/expensive providers are saved for enrich of a converted lead.
+    const active = await this.prisma.providerSetting.findMany({ where: { isActive: true, runOnSearch: true } });
     const implemented = active.filter((p) => this.registry.get(p.code));
     if (!implemented.length) {
-      throw new ServiceUnavailableException('No active data provider — activate one on the Providers page');
+      throw new ServiceUnavailableException(
+        'No active search provider — activate a provider and mark it "Run on Search" on the Providers page',
+      );
     }
 
     const collected: PersonMatch[] = [];

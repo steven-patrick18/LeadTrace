@@ -13,6 +13,8 @@ interface ProviderFull {
   dailySpendCapCents: number;
   dailyRequestLimit: number;
   cacheTtlHours: number;
+  runOnSearch: boolean;
+  enrichLevel: number;
   hasApiKey: boolean;
   apiKeyLast4: string | null;
   hasApiSecret: boolean;
@@ -205,6 +207,30 @@ export function ProviderDetail() {
         <p className="muted" style={{ fontSize: '0.78rem' }}>
           When the request limit or spend cap is hit, live calls to this provider stop until midnight — cached
           results keep working. Both breaches are audited.
+        </p>
+
+        <h2 style={{ marginTop: 18 }}>Cost tiering — search vs enrich</h2>
+        <div className="row" style={{ alignItems: 'flex-end', gap: 14 }}>
+          <div className="field">
+            <label>Runs on…</label>
+            <select value={p.runOnSearch ? 'search' : 'enrich'} onChange={(e) => update({ runOnSearch: e.target.value === 'search' }, 'Stage saved.')}>
+              <option value="search">Search + Enrich</option>
+              <option value="enrich">Enrich only (skip on search)</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>Enrich depth level</label>
+            <select value={p.enrichLevel} onChange={(e) => update({ enrichLevel: Number(e.target.value) }, 'Enrich level saved.')}>
+              <option value={1}>Level 1 — basic (all users)</option>
+              <option value={2}>Level 2 — standard</option>
+              <option value={3}>Level 3 — deep / most expensive</option>
+            </select>
+          </div>
+        </div>
+        <p className="muted" style={{ fontSize: '0.78rem' }}>
+          Put cheap providers on <strong>Search + Enrich</strong> so every agent lookup returns name + latest address.
+          Set expensive providers to <strong>Enrich only</strong> so you pay for depth only after a number becomes a
+          lead. A provider at level N runs at enrich only for users whose enrich level is ≥ N (set on the Users page).
         </p>
       </div>
 

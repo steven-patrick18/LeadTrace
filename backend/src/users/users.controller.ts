@@ -11,7 +11,7 @@ import {
   Post,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
-import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, Matches, Max, Min, MinLength } from 'class-validator';
 import { AuditService } from '../common/audit.service';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/decorators';
 import { PrismaService } from '../common/prisma.service';
@@ -23,6 +23,7 @@ class CreateUserDto {
   @IsInt() roleId!: number;
   @IsOptional() @IsInt() reportsToId?: number;
   @IsOptional() @IsInt() officeId?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(3) enrichLevel?: number;
 }
 
 class UpdateUserDto {
@@ -33,6 +34,8 @@ class UpdateUserDto {
   @IsOptional() @IsInt() reportsToId?: number;
   /** null clears the office (user floats across all offices) */
   @IsOptional() officeId?: number | null;
+  /** max provider depth this user may enrich to (1 basic … 3 deep) */
+  @IsOptional() @IsInt() @Min(1) @Max(3) enrichLevel?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
   /** Assign a specific batch ID (must be unique; uppercase letters/digits/dashes). */
   @IsOptional() @Matches(/^[A-Z0-9-]{4,20}$/i, { message: 'Batch ID must be 4-20 chars: letters, digits, dashes' })
@@ -58,6 +61,7 @@ export class UsersController {
         role: { select: { id: true, roleCode: true, displayName: true, tier: true } },
         reportsTo: { select: { id: true, name: true } },
         office: { select: { id: true, name: true } },
+        enrichLevel: true,
       },
     });
     if (user.permissionScope === 'VIEW') {
@@ -81,6 +85,7 @@ export class UsersController {
         role: { select: { id: true, roleCode: true, displayName: true } },
         reportsTo: { select: { id: true, name: true } },
         office: { select: { id: true, name: true } },
+        enrichLevel: true,
       },
     });
     if (!targetRaw) throw new BadRequestException('User not found');
@@ -179,6 +184,7 @@ export class UsersController {
         roleId: dto.roleId,
         reportsToId: dto.reportsToId ?? null,
         officeId: dto.officeId ?? null,
+        enrichLevel: dto.enrichLevel ?? 1,
       },
       select: { id: true, name: true, email: true, roleId: true },
     });
@@ -217,11 +223,12 @@ export class UsersController {
         roleId: dto.roleId,
         reportsToId: dto.reportsToId,
         officeId: dto.officeId === undefined ? undefined : dto.officeId,
+        enrichLevel: dto.enrichLevel,
         isActive: dto.isActive,
         batchId,
         ...(dto.password ? { passwordHash: await argon2.hash(dto.password) } : {}),
       },
-      select: { id: true, name: true, email: true, roleId: true, isActive: true, batchId: true, officeId: true },
+      select: { id: true, name: true, email: true, roleId: true, isActive: true, batchId: true, officeId: true, enrichLevel: true },
     });
     await this.audit.log({
       userId: user.id, action: 'USER_UPDATED', ip,

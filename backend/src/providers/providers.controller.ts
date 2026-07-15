@@ -18,6 +18,7 @@ import {
   IsString,
   IsUrl,
   Matches,
+  Max,
   Min,
   MinLength,
 } from 'class-validator';
@@ -45,6 +46,8 @@ class UpdateProviderDto {
   @IsOptional() @IsInt() @Min(0) dailySpendCapCents?: number;
   @IsOptional() @IsInt() @Min(0) dailyRequestLimit?: number;
   @IsOptional() @IsInt() @Min(1) cacheTtlHours?: number;
+  @IsOptional() @IsBoolean() runOnSearch?: boolean;
+  @IsOptional() @IsInt() @Min(1) @Max(3) enrichLevel?: number;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsUrl() websiteUrl?: string;
   @IsOptional() @IsUrl() signupUrl?: string;
@@ -182,6 +185,8 @@ export class ProvidersController {
           dailySpendCapCents: dto.dailySpendCapCents,
           dailyRequestLimit: dto.dailyRequestLimit,
           cacheTtlHours: dto.cacheTtlHours,
+          runOnSearch: dto.runOnSearch,
+          enrichLevel: dto.enrichLevel,
           description: dto.description,
           websiteUrl: dto.websiteUrl,
           signupUrl: dto.signupUrl,

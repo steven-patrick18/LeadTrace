@@ -143,14 +143,18 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
     return out;
   }
 
-  /** Age band from DOBs.DOB[] (["MM/DD/YYYY", ...]). */
+  /**
+   * Age band from DOBs.DOB[]. SearchBug returns several DOB candidates and lists
+   * the best match FIRST — plus noise years. Use the first candidate that yields
+   * a plausible adult age (never the earliest, which is usually the noise).
+   */
   private ageFromDobs(person: any): string | null {
-    const dobs = this.list(person?.DOBs, 'DOB').map((d: any) => this.ts(d)).filter(Boolean).sort();
-    if (!dobs.length) return null;
-    const year = new Date(dobs[0]).getUTCFullYear();
-    if (year < 1900 || year > 2020) return null;
-    const age = 2026 - year;
-    return `${Math.max(0, age - 2)}-${age + 2}`;
+    const years = this.list(person?.DOBs, 'DOB')
+      .map((d: any) => (this.ts(d) ? new Date(this.ts(d)).getUTCFullYear() : 0))
+      .filter((y) => y >= 1925 && y <= 2008); // adult, non-noise
+    if (!years.length) return null;
+    const age = 2026 - years[0];
+    return `${Math.max(18, age - 2)}-${age + 2}`;
   }
 
   /** addresses.address[] — most recent first (current), rest past. */

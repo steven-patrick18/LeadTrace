@@ -10,7 +10,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { IsInt, IsString, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
 import { AuditService } from '../common/audit.service';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/decorators';
 import { toE164 } from '../common/phone.util';
@@ -25,6 +25,7 @@ class WeightDto {
 class DncAddDto {
   @IsString() @MinLength(7) phone!: string;
   @IsString() @MinLength(2) reason!: string;
+  @IsOptional() @IsBoolean() litigator?: boolean;
 }
 
 @Controller()
@@ -91,9 +92,9 @@ export class EnrichmentController {
     const existing = await this.prisma.dncOptout.findUnique({ where: { phone } });
     if (existing) throw new BadRequestException('Phone is already on the opt-out list');
     const row = await this.prisma.dncOptout.create({
-      data: { phone, reason: dto.reason, addedById: user.id },
+      data: { phone, reason: dto.reason, litigator: dto.litigator ?? false, addedById: user.id },
     });
-    await this.audit.log({ userId: user.id, action: 'DNC_OPTOUT_ADDED', ip, detail: { phone, reason: dto.reason } });
+    await this.audit.log({ userId: user.id, action: 'DNC_OPTOUT_ADDED', ip, detail: { phone, reason: dto.reason, litigator: dto.litigator ?? false } });
     return row;
   }
 

@@ -30,7 +30,7 @@ import {
   ProviderContribution,
 } from './enrichment.types';
 import { GeoService } from './geo.service';
-import { MockDncProvider } from './mock-dnc.provider';
+import { InternalDncProvider } from './internal-dnc.provider';
 import { MockEnrichmentProvider } from './mock-enrichment.provider';
 import { ScoringService } from './scoring.service';
 
@@ -54,7 +54,7 @@ export class EnrichmentService {
     private readonly notifications: NotificationsService,
     private readonly leadAccess: LeadAccessService,
     mockEnricher: MockEnrichmentProvider,
-    mockDnc: MockDncProvider,
+    internalDnc: InternalDncProvider,
     engine: OwnServerProvider,
     batchData: BatchDataProvider,
     trestle: TrestleProvider,
@@ -82,7 +82,7 @@ export class EnrichmentService {
       [searchbug.code, searchbug],
     ]);
     this.identityVerifier = twilio;
-    this.scrub = mockDnc; // swap for a real scrub adapter when subscribed
+    this.scrub = internalDnc; // authoritative: the team's own DNC List page only
   }
 
   /** POST /leads/:id/enrich — runs A → C → D, then computes E (spec). */
@@ -253,14 +253,9 @@ export class EnrichmentService {
   ): Promise<ComplianceData> {
     const internalDncStatus = await this.internalDncStatus(phone);
 
-    const scrubResult = await this.cachedPaidCall<Awaited<ReturnType<DncScrubProvider['scrub']>>>(
-      `dnc:phone=${phone}`,
-      Math.min(ttlHours, DNC_CACHE_TTL_HOURS),
-      capCents,
-      userId,
-      async () => ({ data: await this.scrub.scrub(phone), costCents: 0, providerCode: this.scrub.code }),
-    );
-    const scrub = scrubResult.data;
+    // The scrub reads the team's own DNC List (a free, authoritative local
+    // lookup) — never cached, so adding/removing a number takes effect at once.
+    const scrub = await this.scrub.scrub(phone);
 
     // No consent ledger yet ⇒ hasConsent=false until one is built. That makes
     // the gate strictly conservative: any DNC listing blocks calling.

@@ -14,7 +14,7 @@ import { PrismaService } from './common/prisma.service';
 import { EnrichmentController } from './enrichment/enrichment.controller';
 import { EnrichmentService } from './enrichment/enrichment.service';
 import { GeoService } from './enrichment/geo.service';
-import { MockDncProvider } from './enrichment/mock-dnc.provider';
+import { InternalDncProvider } from './enrichment/internal-dnc.provider';
 import { MockEnrichmentProvider } from './enrichment/mock-enrichment.provider';
 import { ScoringService } from './enrichment/scoring.service';
 import { CommentsController } from './comments/comments.controller';
@@ -119,7 +119,7 @@ import { UsersController } from './users/users.controller';
     GeoService,
     ScoringService,
     MockEnrichmentProvider,
-    MockDncProvider,
+    InternalDncProvider,
     EnrichmentService,
     // Global guard order matters: authenticate, then authorize (spec §3).
     { provide: APP_GUARD, useClass: JwtAuthGuard },

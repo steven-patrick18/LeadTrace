@@ -5,6 +5,7 @@ interface DncRow {
   id: number;
   phone: string;
   reason: string;
+  litigator: boolean;
   createdAt: string;
   addedBy: { id: number; name: string };
 }
@@ -13,6 +14,7 @@ export function DncList() {
   const [rows, setRows] = useState<DncRow[]>([]);
   const [phone, setPhone] = useState('');
   const [reason, setReason] = useState('');
+  const [litigator, setLitigator] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
 
@@ -24,9 +26,10 @@ export function DncList() {
     setError('');
     setMsg('');
     try {
-      await post('/dnc', { phone, reason });
+      await post('/dnc', { phone, reason, litigator });
       setPhone('');
       setReason('');
+      setLitigator(false);
       setMsg('Added. This phone is now blocked from calling everywhere in the system.');
       await load();
     } catch (err) {
@@ -48,11 +51,12 @@ export function DncList() {
 
   return (
     <div>
-      <h1>Internal Do-Not-Call / Opt-out List</h1>
-      <p className="muted" style={{ maxWidth: 720 }}>
-        This list is <strong>authoritative</strong>: any phone here is blocked from call logging immediately,
-        regardless of external scrub results or when the lead was last enriched. Add every consumer opt-out
-        request here the moment it happens — that is a legal obligation, not a preference.
+      <h1>USA DNC &amp; Litigator List</h1>
+      <p className="muted" style={{ maxWidth: 760 }}>
+        This is the <strong>single authoritative source</strong> for call blocking. A phone is blocked
+        <strong> only if it is on this list</strong> — nothing else marks a lead "do not call". Any number here is
+        blocked from call logging immediately, everywhere, regardless of when the lead was last enriched.
+        Add consumer opt-out requests and known TCPA litigators here the moment you learn of them.
       </p>
       {msg && <div className="ok">{msg}</div>}
       {error && <div className="error">{error}</div>}
@@ -67,23 +71,35 @@ export function DncList() {
             <label>Reason</label>
             <input required value={reason} onChange={(e) => setReason(e.target.value)} placeholder='e.g. "Asked to be removed on call 2026-07-14"' />
           </div>
-          <button type="submit">Add to opt-out list</button>
+          <div className="field">
+            <label>Type</label>
+            <select value={litigator ? 'lit' : 'dnc'} onChange={(e) => setLitigator(e.target.value === 'lit')}>
+              <option value="dnc">Do Not Call</option>
+              <option value="lit">TCPA Litigator</option>
+            </select>
+          </div>
+          <button type="submit">Add to list</button>
         </form>
         <table>
           <thead>
-            <tr><th>Phone</th><th>Reason</th><th>Added by</th><th>When</th><th></th></tr>
+            <tr><th>Phone</th><th>Type</th><th>Reason</th><th>Added by</th><th>When</th><th></th></tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id}>
                 <td style={{ fontFamily: 'monospace' }}>{r.phone}</td>
+                <td>
+                  <span className={`badge ${r.litigator ? 'CLOSED_LOST' : 'PENDING_ROUTING'}`}>
+                    {r.litigator ? '⚖️ Litigator' : 'Do Not Call'}
+                  </span>
+                </td>
                 <td>{r.reason}</td>
                 <td className="muted">{r.addedBy.name}</td>
                 <td className="muted">{new Date(r.createdAt).toLocaleString()}</td>
                 <td><button className="ghost sm" onClick={() => remove(r)}>Remove</button></td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={5} className="muted">List is empty.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={6} className="muted">List is empty — no numbers are blocked.</td></tr>}
           </tbody>
         </table>
       </div>

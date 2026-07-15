@@ -599,6 +599,7 @@ model DncOptout {
   id        Int      @id @default(autoincrement())
   phone     String   @unique // E.164
   reason    String
+  litigator Boolean  @default(false) @map("litigator") // TCPA litigator flag (vs plain DNC)
   addedById Int      @map("added_by")
   createdAt DateTime @default(now()) @map("created_at")
 

@@ -3,6 +3,7 @@ import { useAuth } from './auth';
 import { Bell } from './components/Bell';
 import { DeskWidget } from './components/DeskWidget';
 import { SessionSwitch } from './components/SessionSwitch';
+import { ThemeToggle } from './components/ThemeToggle';
 import { DeskFloor } from './pages/DeskFloor';
 import { ApiCosts } from './pages/ApiCosts';
 import { Dashboard } from './pages/Dashboard';
@@ -59,6 +60,7 @@ export default function App() {
       </nav>
       <main className="main">
         <div className="topbar">
+          <ThemeToggle />
           <SessionSwitch />
           <DeskWidget />
           <Bell />

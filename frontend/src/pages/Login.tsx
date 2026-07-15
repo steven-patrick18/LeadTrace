@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useAuth } from '../auth';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 export function Login() {
   const { login } = useAuth();
@@ -24,8 +25,11 @@ export function Login() {
   return (
     <div className="login-wrap">
       <div className="card login-box">
-        <div className="brand" style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 18 }}>
-          Lead<span style={{ color: 'var(--accent)' }}>Trace</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <div className="brand" style={{ fontSize: '1.5rem', fontWeight: 700 }}>
+            Lead<span style={{ color: 'var(--accent)' }}>Trace</span>
+          </div>
+          <ThemeToggle />
         </div>
         <form onSubmit={submit}>
           <div className="field" style={{ marginBottom: 12 }}>

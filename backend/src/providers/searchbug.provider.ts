@@ -98,89 +98,142 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
   }
 
   /**
-   * SearchBug nests the person under several possible keys. The live API wraps
-   * everything in {"Status":"OK","Data":...} — unwrap Data first, then search
-   * the usual containers.
+   * SearchBug wraps XML-style: every list is {parent: {child: [...]}}. This
+   * pulls the array whether it arrived as an array, a single object, or absent.
+   * Field paths verified against the LIVE api_ppl response.
    */
+  private list(node: any, key: string): any[] {
+    const v = node?.[key];
+    if (Array.isArray(v)) return v;
+    if (v && typeof v === 'object') return [v];
+    return [];
+  }
+
+  /** People live at people.person[] on the live api_ppl response. */
   private records(json: any): any[] {
-    const root = json?.Data ?? json;
-    const arr =
-      root?.records ?? root?.people ?? root?.persons ?? root?.results ?? root?.data ?? root?.person ?? root?.RECORDS;
-    if (Array.isArray(arr)) return arr;
-    if (arr && typeof arr === 'object') return [arr];
-    if (Array.isArray(root)) return root;
-    // Root itself may be the person record.
-    return root?.firstName || root?.lastName ? [root] : [];
+    return this.list(json?.people, 'person');
   }
 
-  private ageFromDob(dob: any): string | null {
-    const y = Number(dob?.year ?? dob?.YEAR);
-    if (!y || y < 1900 || y > 2025) return null;
-    const age = 2026 - y; // reference year; approximate band is enough for scoring
-    return `${Math.max(0, age - 1)}-${age + 1}`;
+  /** Parse SearchBug's "MM/DD/YYYY" into epoch ms for recency sorting. */
+  private ts(d: unknown): number {
+    const m = String(d ?? '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    return m ? Date.UTC(Number(m[3]), Number(m[1]) - 1, Number(m[2])) : 0;
   }
 
-  private addressesOf(p: any): PersonEnrichment['addresses'] {
-    const raw = Array.isArray(p?.addresses) ? p.addresses : p?.address ? [p.address] : [];
-    return raw
-      .map((a: any, i: number) => ({
-        line1: a?.line1 ?? a?.address ?? [a?.houseNumber, a?.streetName].filter(Boolean).join(' ') ?? '',
-        city: a?.city ?? '',
-        state: a?.state ?? '',
-        zip: [a?.zip, a?.zip4].filter(Boolean).join('-') || a?.zip || '',
-        type: (i === 0 ? 'current' : 'past') as 'current' | 'past',
-      }))
-      .filter((a: any) => a.line1 || a.city);
+  /** Best (most-recent) name from names.name[]; the rest become aliases. */
+  private nameOf(person: any): { first: string; last: string; full: string } {
+    const names = this.list(person?.names, 'name');
+    if (!names.length) return { first: '', last: '', full: '' };
+    const best = [...names].sort((a, b) => this.ts(b?.lastDate) - this.ts(a?.lastDate))[0];
+    const first = String(best?.firstName ?? '').trim();
+    const last = [best?.lastName, best?.nameSuffix].filter(Boolean).join(' ').trim();
+    return { first, last, full: `${first} ${last}`.trim() };
   }
 
-  private phonesOf(p: any, primary: string | null): PersonEnrichment['phones'] {
-    const out: PersonEnrichment['phones'] = [];
-    if (primary) out.push({ number: primary, lineType: 'unknown', active: true, spamRisk: 'low', isPrimary: true });
-    for (const ph of Array.isArray(p?.phones) ? p.phones : []) {
-      const n = this.e164(ph?.phoneNumber ?? ph?.number ?? ph);
-      if (n && !out.some((x) => x.number === n)) {
-        out.push({
-          number: n,
-          lineType: this.lineType(ph?.lineType ?? ph?.type),
-          active: ph?.status ? !/disconn/i.test(String(ph.status)) : true,
-          spamRisk: 'low',
-          isPrimary: out.length === 0,
-        });
+  private aliasesOf(person: any, primaryFull: string): string[] {
+    const seen = new Set([primaryFull.toLowerCase()]);
+    const out: string[] = [];
+    for (const n of this.list(person?.names, 'name')) {
+      const full = `${n?.firstName ?? ''} ${n?.lastName ?? ''}`.trim();
+      if (full && !seen.has(full.toLowerCase())) {
+        seen.add(full.toLowerCase());
+        out.push(full);
       }
     }
     return out;
   }
 
-  private nameOf(r: any): { first: string; last: string; full: string } {
-    const n = r?.name ?? r;
-    const first = n?.firstName ?? n?.first ?? '';
-    const last = n?.lastName ?? n?.last ?? '';
-    return { first, last, full: `${first} ${last}`.trim() };
+  /** Age band from DOBs.DOB[] (["MM/DD/YYYY", ...]). */
+  private ageFromDobs(person: any): string | null {
+    const dobs = this.list(person?.DOBs, 'DOB').map((d: any) => this.ts(d)).filter(Boolean).sort();
+    if (!dobs.length) return null;
+    const year = new Date(dobs[0]).getUTCFullYear();
+    if (year < 1900 || year > 2020) return null;
+    const age = 2026 - year;
+    return `${Math.max(0, age - 2)}-${age + 2}`;
   }
 
-  private relativesOf(p: any): Array<{ name: string }> {
-    return (Array.isArray(p?.relatives) ? p.relatives : [])
-      .map((r: any) => ({ name: this.nameOf(r).full }))
-      .filter((r: { name: string }) => r.name);
+  /** addresses.address[] — most recent first (current), rest past. */
+  private addressesOf(person: any): PersonEnrichment['addresses'] {
+    return this.list(person?.addresses, 'address')
+      .map((a: any) => ({
+        line1: [a?.fullStreet, a?.apt ? `Apt ${a.apt}` : ''].filter(Boolean).join(' ').trim(),
+        city: a?.city ?? '',
+        state: a?.state ?? '',
+        zip: [a?.zip, a?.plusFour].filter(Boolean).join('-') || a?.zip || '',
+        county: a?.county ?? undefined,
+        last: this.ts(a?.lastDate),
+      }))
+      .filter((a: any) => a.line1 || a.city)
+      .sort((a: any, b: any) => b.last - a.last)
+      .map(({ last, ...a }: any, i: number) => ({ ...a, type: (i === 0 ? 'current' : 'past') as 'current' | 'past' }));
+  }
+
+  /** phones.phone[] — line type + carrier per number. */
+  private phonesOf(person: any, primary: string | null): PersonEnrichment['phones'] {
+    const out: PersonEnrichment['phones'] = [];
+    for (const ph of this.list(person?.phones, 'phone')) {
+      const n = this.e164(ph?.phoneNumber);
+      if (n && !out.some((x) => x.number === n)) {
+        out.push({
+          number: n,
+          lineType: this.lineType(ph?.phoneType ?? ph?.carrierType ?? ph?.listingType),
+          carrier: ph?.carrier ?? undefined,
+          active: true,
+          spamRisk: 'low',
+          isPrimary: primary ? n === primary : out.length === 0,
+        });
+      }
+    }
+    if (primary && !out.some((x) => x.number === primary)) {
+      out.unshift({ number: primary, lineType: 'unknown', active: true, spamRisk: 'low', isPrimary: true });
+    }
+    return out;
+  }
+
+  /** emails: null | {email:[...]} ; emailRecords may also carry addresses. */
+  private emailsOf(person: any): string[] {
+    const raw = [...this.list(person?.emails, 'email'), ...this.list(person?.emailRecords, 'emailRecord')];
+    return [
+      ...new Set(
+        raw
+          .map((e: any) => (typeof e === 'string' ? e : e?.email ?? e?.emailAddress ?? e?.address))
+          .filter((e: any): e is string => typeof e === 'string' && e.includes('@'))
+          .map((e) => e.toLowerCase()),
+      ),
+    ];
+  }
+
+  /** relationships → relatives (defensive; SearchBug nests names inside). */
+  private relativesOf(person: any): Array<{ name: string }> {
+    const rels = this.list(person?.relationships, 'relationship');
+    const out: Array<{ name: string }> = [];
+    for (const r of rels) {
+      const nm = this.nameOf(r);
+      const full = nm.full || `${r?.firstName ?? ''} ${r?.lastName ?? ''}`.trim();
+      if (full) out.push({ name: full });
+    }
+    return out;
   }
 
   async searchPerson(query: PersonSearchQuery): Promise<PersonMatch[]> {
     if (!query.phone) return [];
     const json = await this.reversePhone(query.phone);
-    return this.records(json).map((r) => {
-      const nm = this.nameOf(r);
-      const a = (Array.isArray(r?.addresses) ? r.addresses[0] : r?.address) ?? {};
+    return this.records(json).map((person) => {
+      const nm = this.nameOf(person);
+      const addrs = this.addressesOf(person);
+      const current = addrs[0];
       return {
         firstName: nm.first || 'Unknown',
         lastName: nm.last || 'Contact',
-        phones: this.phonesOf(r, this.e164(query.phone!)).map((ph) => ({ number: ph.number, lineType: ph.lineType, isPrimary: ph.isPrimary })),
-        address: a?.line1 ?? null,
-        city: a?.city ?? null,
-        state: a?.state ?? null,
-        zip: a?.zip ?? null,
-        ageRange: this.ageFromDob(r?.DOB ?? r?.dob),
-        relatives: this.relativesOf(r).map((x) => x.name),
-        confidence: nm.first ? 85 : 45,
+        phones: this.phonesOf(person, this.e164(query.phone!)).map((ph) => ({ number: ph.number, lineType: ph.lineType, isPrimary: ph.isPrimary })),
+        address: current?.line1 ?? null,
+        city: current?.city ?? null,
+        state: current?.state ?? null,
+        zip: current?.zip ?? null,
+        ageRange: this.ageFromDobs(person),
+        relatives: this.relativesOf(person).map((x) => x.name),
+        confidence: nm.first ? 88 : 45,
         sourceProvider: this.code,
       } as PersonMatch;
     });
@@ -188,23 +241,21 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
 
   async enrichPerson(input: { phone: string; firstName: string; lastName: string; zip?: string | null }): Promise<PersonEnrichment> {
     const json = await this.reversePhone(input.phone);
-    const r = this.records(json)[0] ?? {};
+    const person = this.records(json)[0] ?? {};
     const primary = this.e164(input.phone);
-    const emails = (Array.isArray(r?.emails) ? r.emails : [])
-      .map((e: any) => (typeof e === 'string' ? e : e?.email))
-      .filter((e: any) => typeof e === 'string' && e.includes('@'));
+    const nm = this.nameOf(person);
 
     return {
-      aliases: (Array.isArray(r?.aka) ? r.aka : []).map((a: any) => this.nameOf(a).full).filter(Boolean),
-      addresses: this.addressesOf(r),
-      phones: this.phonesOf(r, primary),
-      emails,
-      ageRange: this.ageFromDob(r?.DOB ?? r?.dob),
-      relatives: this.relativesOf(r),
+      aliases: this.aliasesOf(person, nm.full),
+      addresses: this.addressesOf(person),
+      phones: this.phonesOf(person, primary),
+      emails: this.emailsOf(person),
+      ageRange: this.ageFromDobs(person),
+      relatives: this.relativesOf(person),
       associates: [],
       property: { ownership: 'unknown' },
       socialUrls: [], // SearchBug people search returns no social; never fetched
-      providerConfidence: this.nameOf(r).first ? 0.88 : 0.4,
+      providerConfidence: nm.first ? 0.9 : 0.4,
       sourceProvider: this.code,
     };
   }

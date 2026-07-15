@@ -21,6 +21,13 @@ interface Enrichment {
     sourceProvider: string;
     sources?: string[];
     accuracyScore?: number;
+    contributors?: Array<{
+      code: string;
+      confidence: number;
+      name: string | null;
+      topAddress: string | null;
+      counts: { phones: number; addresses: number; emails: number; relatives: number };
+    }>;
     identityVerification?: {
       summaryScore: number;
       fields: Record<string, string>;
@@ -207,6 +214,43 @@ export function EnrichmentPanel({ leadId, onCallableChange }: { leadId: number; 
                 <strong>{p.sources.length} provider{p.sources.length > 1 ? 's' : ''}</strong>{' '}
                 <span className="muted">({p.sources.join(', ')})</span>
               </span>
+            </div>
+          )}
+
+          {/* Per-provider breakdown — every provider's own result + score */}
+          {p?.contributors && p.contributors.length > 0 && (
+            <div style={{ margin: '12px 0' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: 6 }}>
+                Every provider queried — its own result &amp; score (the record above is the merged best):
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[...p.contributors].sort((a, b) => b.confidence - a.confidence).map((cN) => {
+                  const found = cN.name || cN.topAddress || cN.counts.phones > 0;
+                  const tone = cN.confidence >= 70 ? 'var(--green)' : cN.confidence >= 40 ? 'var(--amber)' : 'var(--red)';
+                  return (
+                    <div key={cN.code} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--panel2)', borderRadius: 8, padding: '7px 12px' }}>
+                      <span style={{ fontWeight: 800, color: tone, minWidth: 42 }}>{cN.confidence}%</span>
+                      <span style={{ fontWeight: 700, minWidth: 130 }}>{cN.code}</span>
+                      <span style={{ fontSize: '0.84rem', flex: 1 }}>
+                        {found ? (
+                          <>
+                            {cN.name && <strong>{cN.name}</strong>}
+                            {cN.topAddress && <span className="muted"> · 📍 {cN.topAddress}</span>}
+                            <span className="muted">
+                              {' '}· {cN.counts.phones} phone{cN.counts.phones === 1 ? '' : 's'}
+                              {cN.counts.emails > 0 && `, ${cN.counts.emails} email${cN.counts.emails === 1 ? '' : 's'}`}
+                              {cN.counts.addresses > 0 && `, ${cN.counts.addresses} addr`}
+                              {cN.counts.relatives > 0 && `, ${cN.counts.relatives} relative${cN.counts.relatives === 1 ? '' : 's'}`}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="muted">no identity returned (phone quality only)</span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

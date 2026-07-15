@@ -46,6 +46,15 @@ export interface IdentityVerification {
   checkedAt: string; // ISO
 }
 
+/** One provider's own result + score, shown alongside the merged best record. */
+export interface ProviderContribution {
+  code: string;
+  confidence: number; // 0..100, this provider's own confidence
+  name: string | null; // best name/alias this provider returned, if any
+  topAddress: string | null; // this provider's current address, if any
+  counts: { phones: number; addresses: number; emails: number; relatives: number };
+}
+
 export interface PersonEnrichment {
   aliases: string[];
   addresses: EnrichedAddress[];
@@ -62,6 +71,8 @@ export interface PersonEnrichment {
   sources?: string[];
   /** Carrier-authoritative match of the merged name+address to the phone. */
   identityVerification?: IdentityVerification | null;
+  /** Per-provider breakdown — what EACH active provider returned + its score. */
+  contributors?: ProviderContribution[];
   /**
    * 0..100 cross-provider accuracy for the merged record: rises with the number
    * of providers, their individual confidence, and how much they AGREE

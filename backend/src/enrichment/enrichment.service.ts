@@ -27,6 +27,7 @@ import {
   GeoEnrichment,
   IdentityVerification,
   PersonEnrichment,
+  ProviderContribution,
 } from './enrichment.types';
 import { GeoService } from './geo.service';
 import { MockDncProvider } from './mock-dnc.provider';
@@ -492,11 +493,29 @@ export class EnrichmentService {
    * providers is more trustworthy. Every field is unioned; conflicts prefer the
    * more informative value; the score rises with sources + agreement.
    */
+  /** Compact per-provider summary — what each provider returned + its score. */
+  private contributionOf(code: string, d: PersonEnrichment): ProviderContribution {
+    const first = d.addresses[0];
+    return {
+      code,
+      confidence: Math.round(d.providerConfidence * 100),
+      name: d.aliases[0] ?? null,
+      topAddress: first ? [first.line1, first.city, first.state, first.zip].filter(Boolean).join(', ') : null,
+      counts: {
+        phones: d.phones.length,
+        addresses: d.addresses.length,
+        emails: d.emails.length,
+        relatives: d.relatives.length,
+      },
+    };
+  }
+
   private mergeEnrichments(results: Array<{ code: string; data: PersonEnrichment }>): PersonEnrichment {
     const sources = results.map((r) => r.code);
+    const contributors = results.map((r) => this.contributionOf(r.code, r.data));
     if (results.length === 1) {
       const only = results[0].data;
-      return { ...only, sources, accuracyScore: Math.round(only.providerConfidence * 100) };
+      return { ...only, sources, contributors, accuracyScore: Math.round(only.providerConfidence * 100) };
     }
 
     // Phones — union by E.164, count how many providers reported each.
@@ -557,6 +576,7 @@ export class EnrichmentService {
       providerConfidence: avgConf,
       sourceProvider: sources.join('+'),
       sources,
+      contributors,
       accuracyScore,
     };
   }

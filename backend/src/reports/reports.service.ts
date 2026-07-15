@@ -11,11 +11,13 @@ import { PrismaService } from '../common/prisma.service';
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Leads by tier/status + funnel + aging. userId=null → team-wide. */
-  async dashboard(userId: number | null) {
-    const leadFilter: Prisma.LeadWhereInput = userId
-      ? { OR: [{ assignedToId: userId }, { createdById: userId }] }
-      : {};
+  /** Leads by tier/status + funnel + aging. userId=null → team-wide; officeId filters office-wise. */
+  async dashboard(userId: number | null, officeId?: number | null) {
+    const officeFilter: Prisma.LeadWhereInput = officeId ? { officeId } : {};
+    const leadFilter: Prisma.LeadWhereInput = {
+      ...(userId ? { OR: [{ assignedToId: userId }, { createdById: userId }] } : {}),
+      ...officeFilter,
+    };
 
     const byStatus = await this.prisma.lead.groupBy({
       by: ['status'],
@@ -29,12 +31,27 @@ export class ReportsService {
     });
 
     // Conversion funnel (spec §5): created → reached SS → reached Closer → won,
-    // read from routing_history + closes.
-    const funnelFilter: Prisma.LeadWhereInput = userId ? { createdById: userId } : {};
+    // read from routing_history + closes. "Reached SS" counts both the manager
+    // bucket path (T1_TO_SS) and the agent-decided direct handoff (T1_DIRECT
+    // to a Sr Agent).
+    const srAgentIds = (
+      await this.prisma.user.findMany({ where: { role: { roleCode: 'SR_AGENT' } }, select: { id: true } })
+    ).map((u) => u.id);
+    const funnelFilter: Prisma.LeadWhereInput = { ...(userId ? { createdById: userId } : {}), ...officeFilter };
     const [created, reachedSS, reachedCloser, won] = await Promise.all([
       this.prisma.lead.count({ where: funnelFilter }),
       this.prisma.lead.count({
-        where: { ...funnelFilter, routingHistory: { some: { transferPoint: 'T1_TO_SS' } } },
+        where: {
+          ...funnelFilter,
+          routingHistory: {
+            some: {
+              OR: [
+                { transferPoint: 'T1_TO_SS' },
+                { transferPoint: 'T1_DIRECT', toUserId: { in: srAgentIds.length ? srAgentIds : [-1] } },
+              ],
+            },
+          },
+        },
       }),
       this.prisma.lead.count({
         where: { ...funnelFilter, routingHistory: { some: { transferPoint: 'T2_TO_CLOSER' } } },
@@ -44,7 +61,11 @@ export class ReportsService {
 
     // Queue aging (team-wide only; own-scope callers see their raised rows)
     const pendingRows = await this.prisma.routingQueue.findMany({
-      where: { status: 'PENDING', ...(userId ? { raisedById: userId } : {}) },
+      where: {
+        status: 'PENDING',
+        ...(userId ? { raisedById: userId } : {}),
+        ...(officeId ? { lead: { officeId } } : {}),
+      },
       select: { createdAt: true, transferPoint: true },
     });
     const now = Date.now();
@@ -63,11 +84,15 @@ export class ReportsService {
     };
   }
 
-  /** Per-user performance. userId=null → all users (team scope). */
-  async performance(userId: number | null) {
+  /** Per-user performance. userId=null → all users (team scope); officeId → that office's staff. */
+  async performance(userId: number | null, officeId?: number | null) {
     const users = await this.prisma.user.findMany({
-      where: { isActive: true, ...(userId ? { id: userId } : {}) },
-      select: { id: true, name: true, role: { select: { roleCode: true, displayName: true } } },
+      where: { isActive: true, ...(userId ? { id: userId } : {}), ...(officeId ? { officeId } : {}) },
+      select: {
+        id: true, name: true,
+        role: { select: { roleCode: true, displayName: true } },
+        office: { select: { id: true, name: true } },
+      },
     });
     const rows = [];
     for (const u of users) {
@@ -136,27 +161,29 @@ export class ReportsService {
    * manager needs to review a period — funnel, outcomes, per-user numbers,
    * daily activity volume, and queue timing — for a chosen day range.
    */
-  async analysis(days: number, from?: Date, to?: Date) {
+  async analysis(days: number, from?: Date, to?: Date, officeId?: number | null) {
     // Preset window by default; explicit from/to wins (custom date range).
     const since = from ?? new Date(Date.now() - days * 86400_000);
     const until = to ?? new Date();
     const range = { gte: since, lte: until };
+    // Office-wise view: filter leads by office; activities/queue follow their lead.
+    const office: Prisma.LeadWhereInput = officeId ? { officeId } : {};
 
     const [createdInPeriod, wonInPeriod, lostInPeriod, byStatus, byTier, funnel, perUser, activities, routed] =
       await Promise.all([
-        this.prisma.lead.count({ where: { createdAt: range } }),
-        this.prisma.lead.count({ where: { status: 'CLOSED_WON', updatedAt: range } }),
-        this.prisma.lead.count({ where: { status: 'CLOSED_LOST', updatedAt: range } }),
-        this.prisma.lead.groupBy({ by: ['status'], _count: { _all: true } }),
-        this.prisma.lead.groupBy({ by: ['currentTier'], where: { status: { notIn: ['CLOSED_WON', 'CLOSED_LOST', 'INVALID'] } }, _count: { _all: true } }),
-        this.dashboard(null).then((d) => d.funnel),
-        this.performance(null),
+        this.prisma.lead.count({ where: { createdAt: range, ...office } }),
+        this.prisma.lead.count({ where: { status: 'CLOSED_WON', updatedAt: range, ...office } }),
+        this.prisma.lead.count({ where: { status: 'CLOSED_LOST', updatedAt: range, ...office } }),
+        this.prisma.lead.groupBy({ by: ['status'], where: office, _count: { _all: true } }),
+        this.prisma.lead.groupBy({ by: ['currentTier'], where: { status: { notIn: ['CLOSED_WON', 'CLOSED_LOST', 'INVALID'] }, ...office }, _count: { _all: true } }),
+        this.dashboard(null, officeId).then((d) => d.funnel),
+        this.performance(null, officeId),
         this.prisma.activity.findMany({
-          where: { createdAt: range },
+          where: { createdAt: range, ...(officeId ? { lead: { officeId } } : {}) },
           select: { type: true, createdAt: true },
         }),
         this.prisma.routingQueue.findMany({
-          where: { status: 'ROUTED', routedAt: range },
+          where: { status: 'ROUTED', routedAt: range, ...(officeId ? { lead: { officeId } } : {}) },
           select: { createdAt: true, routedAt: true, transferPoint: true },
         }),
       ]);

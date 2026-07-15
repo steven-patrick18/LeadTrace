@@ -7,7 +7,7 @@ interface QueueRow {
   transferPoint: string;
   waitMinutes: number;
   createdAt: string;
-  lead: { id: number; firstName: string; lastName: string; primaryPhone: string; city: string | null; state: string | null };
+  lead: { id: number; firstName: string; lastName: string; primaryPhone: string; city: string | null; state: string | null; office?: { id: number; name: string } | null };
   raisedBy: { id: number; name: string; role: { displayName: string } };
 }
 
@@ -15,13 +15,14 @@ interface Recipient {
   id: number;
   name: string;
   role: { roleCode: string; displayName: string };
+  office?: { id: number; name: string } | null;
   _count: { assignedLeads: number };
 }
 
 const GROUPS: Array<{ key: 'T1_TO_SS' | 'T2_TO_CLOSER' | 'T3_SEND_BACK'; title: string; hint: string }> = [
-  { key: 'T1_TO_SS', title: 'T1 — Agent → Sr Agent', hint: 'pick which Sr Agent receives each lead' },
   { key: 'T2_TO_CLOSER', title: 'T2 — Sr Agent → Closer', hint: 'pick which Closer takes the final call' },
   { key: 'T3_SEND_BACK', title: 'T3 — Send-backs', hint: 'route back down to an Agent or Sr Agent' },
+  { key: 'T1_TO_SS', title: 'T1 — Agent → Sr Agent (legacy)', hint: 'older requests — new T1 transfers are direct, decided by the Agent' },
 ];
 
 export function RoutingQueue() {
@@ -84,12 +85,17 @@ export function RoutingQueue() {
 
   return (
     <div>
-      <h1>Routing Queue {totalPending > 0 && <span className="badge PENDING_ROUTING">{totalPending} pending</span>}</h1>
+      <h1>Manager Bucket {totalPending > 0 && <span className="badge PENDING_ROUTING">{totalPending} pending</span>}</h1>
+      <p className="muted" style={{ marginTop: -8 }}>
+        The common routing bucket — every manager (and admin) of the office works the same list.
+        T1 transfers are decided directly by Agents and never land here.
+      </p>
       {msg && <div className="ok">{msg}</div>}
       {error && <div className="error">{error}</div>}
 
       {GROUPS.map((g) => {
         const rows = queue[g.key] ?? [];
+        if (g.key === 'T1_TO_SS' && rows.length === 0) return null; // legacy group — hidden when empty
         return (
           <div key={g.key}>
             <div className="qgroup-title">
@@ -108,7 +114,7 @@ export function RoutingQueue() {
                         <option value="">— pick recipient —</option>
                         {(recipients[g.key] ?? []).map((r) => (
                           <option key={r.id} value={r.id}>
-                            {r.name} ({r.role.displayName}, {r._count.assignedLeads} active)
+                            {r.name} ({r.role.displayName}{r.office ? `, ${r.office.name}` : ''}, {r._count.assignedLeads} active)
                           </option>
                         ))}
                       </select>
@@ -129,7 +135,10 @@ export function RoutingQueue() {
                           <td>
                             <input type="checkbox" checked={selected[g.key].has(r.id)} onChange={() => toggle(g.key, r.id)} />
                           </td>
-                          <td><Link to={`/leads/${r.lead.id}`}>#{r.lead.id} {r.lead.firstName} {r.lead.lastName}</Link></td>
+                          <td>
+                            <Link to={`/leads/${r.lead.id}`}>#{r.lead.id} {r.lead.firstName} {r.lead.lastName}</Link>
+                            {r.lead.office && <span className="badge tier" style={{ marginLeft: 6 }}>🏢 {r.lead.office.name}</span>}
+                          </td>
                           <td>{r.lead.primaryPhone}</td>
                           <td className="muted">{r.lead.city ? `${r.lead.city}, ${r.lead.state}` : '—'}</td>
                           <td className="muted">{r.raisedBy.name} ({r.raisedBy.role.displayName})</td>

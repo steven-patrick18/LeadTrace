@@ -22,6 +22,7 @@ class CreateUserDto {
   @IsString() @MinLength(10) password!: string;
   @IsInt() roleId!: number;
   @IsOptional() @IsInt() reportsToId?: number;
+  @IsOptional() @IsInt() officeId?: number;
 }
 
 class UpdateUserDto {
@@ -30,6 +31,8 @@ class UpdateUserDto {
   @IsOptional() @IsString() @MinLength(10) password?: string;
   @IsOptional() @IsInt() roleId?: number;
   @IsOptional() @IsInt() reportsToId?: number;
+  /** null clears the office (user floats across all offices) */
+  @IsOptional() officeId?: number | null;
   @IsOptional() @IsBoolean() isActive?: boolean;
   /** Assign a specific batch ID (must be unique; uppercase letters/digits/dashes). */
   @IsOptional() @Matches(/^[A-Z0-9-]{4,20}$/i, { message: 'Batch ID must be 4-20 chars: letters, digits, dashes' })
@@ -54,6 +57,7 @@ export class UsersController {
         id: true, name: true, email: true, isActive: true, createdAt: true, batchId: true,
         role: { select: { id: true, roleCode: true, displayName: true, tier: true } },
         reportsTo: { select: { id: true, name: true } },
+        office: { select: { id: true, name: true } },
       },
     });
     if (user.permissionScope === 'VIEW') {
@@ -76,6 +80,7 @@ export class UsersController {
         id: true, name: true, email: true, isActive: true, batchId: true, createdAt: true,
         role: { select: { id: true, roleCode: true, displayName: true } },
         reportsTo: { select: { id: true, name: true } },
+        office: { select: { id: true, name: true } },
       },
     });
     if (!targetRaw) throw new BadRequestException('User not found');
@@ -173,6 +178,7 @@ export class UsersController {
         passwordHash: await argon2.hash(dto.password),
         roleId: dto.roleId,
         reportsToId: dto.reportsToId ?? null,
+        officeId: dto.officeId ?? null,
       },
       select: { id: true, name: true, email: true, roleId: true },
     });
@@ -210,11 +216,12 @@ export class UsersController {
         email: dto.email?.toLowerCase().trim(),
         roleId: dto.roleId,
         reportsToId: dto.reportsToId,
+        officeId: dto.officeId === undefined ? undefined : dto.officeId,
         isActive: dto.isActive,
         batchId,
         ...(dto.password ? { passwordHash: await argon2.hash(dto.password) } : {}),
       },
-      select: { id: true, name: true, email: true, roleId: true, isActive: true, batchId: true },
+      select: { id: true, name: true, email: true, roleId: true, isActive: true, batchId: true, officeId: true },
     });
     await this.audit.log({
       userId: user.id, action: 'USER_UPDATED', ip,

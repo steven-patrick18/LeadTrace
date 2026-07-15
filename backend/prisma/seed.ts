@@ -3,13 +3,12 @@
  * system_state row, app settings, the mock provider, and demo users.
  * The matrix here is the SEED ONLY — after first run the Admin owns it via the UI.
  */
-import { PrismaClient, PermissionScope } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { cellToPermission, PERMISSION_MATRIX, ROLE_ORDER } from '../src/permissions/permission-matrix';
 import { PROVIDER_CATALOG } from '../src/providers/provider-catalog';
 
 const prisma = new PrismaClient();
-
-type Cell = boolean | 'OWN' | 'ASSIGNED' | 'ALL' | 'VIEW';
 
 const ROLES = [
   { roleCode: 'AGENT', displayName: 'Agent', tier: 1 },
@@ -19,45 +18,9 @@ const ROLES = [
   { roleCode: 'ADMIN', displayName: 'Admin', tier: null },
 ];
 
-// permission_key → [AGENT, SR_AGENT, CLOSER, MANAGER, ADMIN]  (spec §3 default matrix)
-const MATRIX: Record<string, [Cell, Cell, Cell, Cell, Cell]> = {
-  search_providers:   [true,  true,  false, true,  true],
-  create_lead:        [true,  true,  false, true,  true],
-  view_own_leads:     [true,  true,  true,  true,  true],
-  view_all_leads:     [false, false, false, true,  true],
-  edit_lead:          ['OWN', 'ASSIGNED', 'ASSIGNED', 'ALL', 'ALL'],
-  log_activity:       [true,  true,  true,  true,  true],
-  request_transfer:   [true,  true,  false, true,  true],
-  route_leads:        [false, false, false, false, true],
-  close_deal:         [false, false, true,  true,  true],
-  send_back:          [false, false, true,  true,  true],
-  view_reports_team:  [false, false, false, true,  true],
-  view_reports_own:   [true,  true,  true,  true,  true],
-  view_api_costs:     [false, false, false, true,  true],
-  export_data:        [false, false, false, true,  true],
-  manage_users:       [false, false, false, 'VIEW', true],
-  manage_permissions: [false, false, false, false, true],
-  manage_providers:   [false, false, false, false, true],
-  system_lockdown:    [false, false, false, false, true],
-  // Lead enrichment module
-  enrich_lead:          [true,  true,  true,  true,  true],
-  view_enrichment:      [true,  true,  true,  true,  true],
-  edit_score_weights:   [false, false, false, false, true],
-  manage_dnc_optout:    [false, false, false, true,  true],
-  view_enrichment_cost: [false, false, false, true,  true],
-  // Custom fields, comments, per-lead access control
-  manage_custom_fields: [false, false, false, false, true],
-  comment_lead:         [true,  true,  true,  true,  true], // + server-side participant rule
-  manage_lead_access:   [false, false, false, false, true],
-  // Desk / batch-id sessions: manager sees the floor, admin manages it
-  manage_desks:         [false, false, false, 'VIEW', true],
-};
-
-function cellToPermission(cell: Cell): { allowed: boolean; scope: PermissionScope } {
-  if (cell === true) return { allowed: true, scope: PermissionScope.ALL };
-  if (cell === false) return { allowed: false, scope: PermissionScope.ALL };
-  return { allowed: true, scope: PermissionScope[cell] };
-}
+// The default matrix lives in src/permissions/permission-matrix.ts (shared
+// with the boot-time sync so new keys reach production without a re-seed).
+const MATRIX = PERMISSION_MATRIX;
 
 async function main() {
   // Roles
@@ -72,7 +35,7 @@ async function main() {
   }
 
   // Permission matrix
-  const order = ['AGENT', 'SR_AGENT', 'CLOSER', 'MANAGER', 'ADMIN'];
+  const order = [...ROLE_ORDER];
   for (const [key, cells] of Object.entries(MATRIX)) {
     for (let i = 0; i < order.length; i++) {
       const { allowed, scope } = cellToPermission(cells[i]);
@@ -142,23 +105,32 @@ async function main() {
     });
   }
 
-  // Demo users (dev only — change passwords in production)
+  // Demo offices (dev only — the Admin creates real offices in Settings)
+  const officeIds: Record<string, number> = {};
+  for (const name of ['Main Office', 'Branch Office']) {
+    const office = await prisma.office.upsert({ where: { name }, update: {}, create: { name } });
+    officeIds[name] = office.id;
+  }
+
+  // Demo users (dev only — change passwords in production). Admin has no
+  // office (sees everything); the two branches each get an agent + sr agent.
   const demoPassword = process.env.SEED_USER_PASSWORD || 'LeadTrace!Dev1';
   const hash = await argon2.hash(demoPassword);
   const demoUsers = [
-    { name: 'Alice Admin', email: 'admin@leadtrace.local', roleCode: 'ADMIN', batchId: 'LT-ALICE' },
-    { name: 'Mark Manager', email: 'manager@leadtrace.local', roleCode: 'MANAGER', batchId: 'LT-MARK' },
-    { name: 'Amy Agent', email: 'agent@leadtrace.local', roleCode: 'AGENT', batchId: 'LT-AMY' },
-    { name: 'Andy Agent', email: 'agent2@leadtrace.local', roleCode: 'AGENT', batchId: 'LT-ANDY' },
-    { name: 'Sam Senior', email: 'sragent@leadtrace.local', roleCode: 'SR_AGENT', batchId: 'LT-SAM' },
-    { name: 'Sara Senior', email: 'sragent2@leadtrace.local', roleCode: 'SR_AGENT', batchId: 'LT-SARA' },
-    { name: 'Carl Closer', email: 'closer@leadtrace.local', roleCode: 'CLOSER', batchId: 'LT-CARL' },
+    { name: 'Alice Admin', email: 'admin@leadtrace.local', roleCode: 'ADMIN', batchId: 'LT-ALICE', office: null as string | null },
+    { name: 'Mark Manager', email: 'manager@leadtrace.local', roleCode: 'MANAGER', batchId: 'LT-MARK', office: 'Main Office' },
+    { name: 'Amy Agent', email: 'agent@leadtrace.local', roleCode: 'AGENT', batchId: 'LT-AMY', office: 'Main Office' },
+    { name: 'Andy Agent', email: 'agent2@leadtrace.local', roleCode: 'AGENT', batchId: 'LT-ANDY', office: 'Branch Office' },
+    { name: 'Sam Senior', email: 'sragent@leadtrace.local', roleCode: 'SR_AGENT', batchId: 'LT-SAM', office: 'Main Office' },
+    { name: 'Sara Senior', email: 'sragent2@leadtrace.local', roleCode: 'SR_AGENT', batchId: 'LT-SARA', office: 'Branch Office' },
+    { name: 'Carl Closer', email: 'closer@leadtrace.local', roleCode: 'CLOSER', batchId: 'LT-CARL', office: 'Main Office' },
   ];
   for (const u of demoUsers) {
+    const officeId = u.office ? officeIds[u.office] : null;
     await prisma.user.upsert({
       where: { email: u.email },
-      update: { batchId: u.batchId },
-      create: { name: u.name, email: u.email, passwordHash: hash, roleId: roleIds[u.roleCode], batchId: u.batchId },
+      update: { batchId: u.batchId, officeId },
+      create: { name: u.name, email: u.email, passwordHash: hash, roleId: roleIds[u.roleCode], batchId: u.batchId, officeId },
     });
   }
 

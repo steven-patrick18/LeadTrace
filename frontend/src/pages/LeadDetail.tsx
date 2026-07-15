@@ -96,9 +96,14 @@ export function LeadDetail() {
         <LeadInfoCard lead={lead} onSaved={load}>
           <h2 style={{ marginTop: 18 }}>Actions</h2>
           <div className="row">
-            {can('request_transfer') && isAssignedToMe && isOpen && !isPending && lead.currentTier !== 'CLOSER' && (
-              <button onClick={() => act(() => post(`/routing/leads/${lead.id}/request-transfer`, {}), 'Transfer requested — waiting for Admin routing.')}>
-                Request Transfer ↑
+            {/* T1 — the Agent decides: direct handoff to a chosen Agent / Sr Agent */}
+            {can('request_transfer') && isAssignedToMe && isOpen && !isPending && lead.currentTier === 'AGENT' && (
+              <DirectTransfer leadId={lead.id} act={act} />
+            )}
+            {/* T2 — Sr Agent sends the lead up into the common Manager bucket */}
+            {can('request_transfer') && isAssignedToMe && isOpen && !isPending && lead.currentTier === 'SR_AGENT' && (
+              <button onClick={() => act(() => post(`/routing/leads/${lead.id}/request-transfer`, {}), 'Sent to the Manager bucket — a manager will route it to a Closer.')}>
+                Send to Manager Bucket ↑
               </button>
             )}
             {can('close_deal') && isOpen && lead.currentTier === 'CLOSER' && isAssignedToMe && (
@@ -130,7 +135,7 @@ export function LeadDetail() {
           </div>
           {isPending && (
             <p className="muted" style={{ marginTop: 10 }}>
-              ⏳ Waiting in the Admin routing queue{lead.queueEntries[0] ? ` (${lead.queueEntries[0].transferPoint})` : ''}.
+              ⏳ Waiting in the Manager bucket{lead.queueEntries[0] ? ` (${lead.queueEntries[0].transferPoint})` : ''} — a manager or admin will route it.
             </p>
           )}
           {msg && <div className="ok">{msg}</div>}
@@ -172,6 +177,69 @@ export function LeadDetail() {
       <CommentsCard leadId={lead.id} />
       <EnrichmentPanel leadId={lead.id} onCallableChange={setCallable} />
       <LeadAccessCard leadId={lead.id} />
+    </div>
+  );
+}
+
+interface Recipient {
+  id: number;
+  name: string;
+  role: { roleCode: string; displayName: string };
+  office: { id: number; name: string } | null;
+  _count: { assignedLeads: number };
+}
+
+/**
+ * T1 — the Agent's own routing decision: pick an Agent or Sr Agent (office-wise
+ * list from the server) and transfer immediately. No queue, no waiting.
+ */
+function DirectTransfer({ leadId, act }: { leadId: number; act: (fn: () => Promise<unknown>, okMsg: string) => Promise<void> }) {
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [toUserId, setToUserId] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    get<Recipient[]>(`/routing/leads/${leadId}/direct-recipients`).then(setRecipients).catch(() => setRecipients([]));
+  }, [leadId]);
+
+  const transfer = async () => {
+    if (!toUserId) return;
+    setBusy(true);
+    const target = recipients.find((r) => r.id === Number(toUserId));
+    await act(
+      () => post(`/routing/leads/${leadId}/direct-transfer`, { toUserId: Number(toUserId) }),
+      `Transferred to ${target?.name ?? 'colleague'}.`,
+    );
+    setBusy(false);
+    setToUserId('');
+  };
+
+  return (
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+      <select value={toUserId} onChange={(e) => setToUserId(e.target.value)} style={{ minWidth: 220 }}>
+        <option value="">Transfer to… (Agent / Sr Agent)</option>
+        {recipients.filter((r) => r.role.roleCode === 'SR_AGENT').length > 0 && (
+          <optgroup label="Sr Agents (moves lead to T2)">
+            {recipients.filter((r) => r.role.roleCode === 'SR_AGENT').map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}{r.office ? ` · ${r.office.name}` : ''} ({r._count.assignedLeads} open)
+              </option>
+            ))}
+          </optgroup>
+        )}
+        {recipients.filter((r) => r.role.roleCode === 'AGENT').length > 0 && (
+          <optgroup label="Agents (stays at T1)">
+            {recipients.filter((r) => r.role.roleCode === 'AGENT').map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}{r.office ? ` · ${r.office.name}` : ''} ({r._count.assignedLeads} open)
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+      <button onClick={transfer} disabled={!toUserId || busy}>
+        {busy ? 'Transferring…' : 'Transfer ➜'}
+      </button>
     </div>
   );
 }

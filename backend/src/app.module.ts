@@ -30,8 +30,10 @@ import { LockdownGate } from './lockdown/lockdown.middleware';
 import { LockdownService } from './lockdown/lockdown.service';
 import { NotificationsController } from './notifications/notifications.controller';
 import { NotificationsService } from './notifications/notifications.service';
+import { OfficesController } from './offices/offices.controller';
 import { PermissionsController } from './permissions/permissions.controller';
 import { PermissionsService } from './permissions/permissions.service';
+import { PermissionSyncService } from './permissions/permission-sync.service';
 import { BatchDataProvider } from './providers/batchdata.provider';
 import { EndatoProvider } from './providers/endato.provider';
 import { IpqsProvider } from './providers/ipqs.provider';
@@ -83,6 +85,7 @@ import { UsersController } from './users/users.controller';
     DesksController,
     TierStatusesController,
     SystemController,
+    OfficesController,
   ],
   providers: [
     PrismaService,
@@ -90,6 +93,7 @@ import { UsersController } from './users/users.controller';
     AuditService,
     AuthService,
     PermissionsService,
+    PermissionSyncService,
     MockProvider,
     OwnServerProvider,
     BatchDataProvider,

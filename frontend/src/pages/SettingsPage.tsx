@@ -7,11 +7,79 @@ export function SettingsPage() {
   return (
     <div>
       <h1>Settings</h1>
+      {can('manage_offices') && <OfficesManager />}
       {can('manage_custom_fields') && <CustomFieldDefs />}
       {can('manage_custom_fields') && <TierStatusManager />}
       {can('manage_permissions') && <AppSettings />}
       {can('edit_score_weights') && <ScoreWeights />}
       {can('system_lockdown') && <Lockdown />}
+    </div>
+  );
+}
+
+interface Office {
+  id: number;
+  name: string;
+  isActive: boolean;
+  _count?: { users: number; leads: number };
+}
+
+/**
+ * Offices — the operation's branches. Users belong to one; leads inherit the
+ * creator's office; transfers, the Manager bucket, and reports are office-wise.
+ */
+function OfficesManager() {
+  const [offices, setOffices] = useState<Office[]>([]);
+  const [name, setName] = useState('');
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+
+  const load = () => get<Office[]>('/offices').then(setOffices).catch(() => setOffices([]));
+  useEffect(() => { load(); }, []);
+
+  const run = async (fn: () => Promise<unknown>, ok: string) => {
+    setMsg(''); setError('');
+    try { await fn(); setMsg(ok); await load(); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+  };
+
+  return (
+    <div className="card">
+      <h2>🏢 Offices</h2>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Each user belongs to an office; leads follow their creator's office. Transfers and the Manager
+        bucket stay office-wise, and Reports can view one office or all combined. Users without an
+        office (e.g. Admin) float across all offices.
+      </p>
+      <div className="row" style={{ marginBottom: 12 }}>
+        <input placeholder="New office name" value={name} onChange={(e) => setName(e.target.value)} />
+        <button
+          disabled={name.trim().length < 2}
+          onClick={() => run(() => post('/offices', { name: name.trim() }), 'Office created.').then(() => setName(''))}
+        >
+          + Add office
+        </button>
+      </div>
+      {offices.length === 0 && <div className="muted">No offices yet — everyone works as one pool.</div>}
+      {offices.map((o) => (
+        <div key={o.id} className="row" style={{ alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+          <strong style={{ minWidth: 180 }}>{o.name}</strong>
+          <span className="muted">
+            {o._count ? `${o._count.users} user${o._count.users === 1 ? '' : 's'} · ${o._count.leads} lead${o._count.leads === 1 ? '' : 's'}` : ''}
+          </span>
+          <span className={`badge ${o.isActive ? 'CLOSED_WON' : 'INVALID'}`}>{o.isActive ? 'active' : 'inactive'}</span>
+          <span style={{ flex: 1 }} />
+          <button className="ghost sm" onClick={() => {
+            const newName = prompt('Rename office:', o.name);
+            if (newName && newName.trim().length >= 2) run(() => patch(`/offices/${o.id}`, { name: newName.trim() }), 'Renamed.');
+          }}>Rename</button>
+          <button className="ghost sm" onClick={() => run(() => patch(`/offices/${o.id}`, { isActive: !o.isActive }), o.isActive ? 'Deactivated.' : 'Activated.')}>
+            {o.isActive ? 'Deactivate' : 'Activate'}
+          </button>
+        </div>
+      ))}
+      {msg && <div className="ok">{msg}</div>}
+      {error && <div className="error">{error}</div>}
     </div>
   );
 }

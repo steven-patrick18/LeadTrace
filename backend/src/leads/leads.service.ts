@@ -69,11 +69,15 @@ export class LeadsService {
       });
     }
 
+    // Office-wise: the lead belongs to its creator's office from birth.
+    const creator = await this.prisma.user.findUnique({ where: { id: user.id }, select: { officeId: true } });
+
     const lead = await this.prisma.$transaction(async (tx) => {
       const created = await tx.lead.create({
         data: {
           createdById: user.id,
           assignedToId: user.id,
+          officeId: creator?.officeId ?? null,
           currentTier: 'AGENT',
           status: 'NEW',
           firstName: input.firstName.trim(),

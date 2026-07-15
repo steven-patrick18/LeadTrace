@@ -18,6 +18,15 @@ class RouteDto {
   toUserId!: number;
 }
 
+class DirectTransferDto {
+  @IsInt()
+  toUserId!: number;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
 class BulkRouteDto {
   @IsArray()
   @ArrayNotEmpty()
@@ -60,6 +69,24 @@ export class RoutingController {
     return this.routing.requestTransfer(user, id, dto.note, ip);
   }
 
+  /** T1: the Agent picks an Agent or Sr Agent and transfers immediately. */
+  @RequirePermission('request_transfer')
+  @Get('leads/:id/direct-recipients')
+  directRecipients(@CurrentUser() user: AuthUser, @Param('id', ParseIntPipe) id: number) {
+    return this.routing.directRecipients(user, id);
+  }
+
+  @RequirePermission('request_transfer')
+  @Post('leads/:id/direct-transfer')
+  directTransfer(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DirectTransferDto,
+    @Ip() ip: string,
+  ) {
+    return this.routing.directTransfer(user, id, dto.toUserId, dto.note, ip);
+  }
+
   @RequirePermission('close_deal')
   @Post('leads/:id/close')
   close(
@@ -84,14 +111,14 @@ export class RoutingController {
 
   @RequirePermission('route_leads')
   @Get('queue')
-  queue() {
-    return this.routing.queue();
+  queue(@CurrentUser() user: AuthUser) {
+    return this.routing.queue(user);
   }
 
   @RequirePermission('route_leads')
   @Get('recipients')
-  recipients(@Query('transferPoint') transferPoint: TransferPoint) {
-    return this.routing.eligibleRecipients(transferPoint);
+  recipients(@CurrentUser() user: AuthUser, @Query('transferPoint') transferPoint: TransferPoint) {
+    return this.routing.eligibleRecipients(user, transferPoint);
   }
 
   @RequirePermission('route_leads')

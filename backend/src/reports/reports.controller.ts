@@ -17,26 +17,34 @@ export class ReportsController {
     return team.allowed ? null : user.id;
   }
 
+  /** office=<id> → office-wise view; omitted/empty → all offices combined. */
+  private officeId(office?: string): number | null {
+    const n = Number(office);
+    return office && Number.isInteger(n) && n > 0 ? n : null;
+  }
+
   @RequirePermission('view_reports_own')
   @Get('dashboard')
-  async dashboard(@CurrentUser() user: AuthUser) {
-    return this.reports.dashboard(await this.scopeUserId(user));
+  async dashboard(@CurrentUser() user: AuthUser, @Query('office') office?: string) {
+    return this.reports.dashboard(await this.scopeUserId(user), this.officeId(office));
   }
 
   @RequirePermission('view_reports_own')
   @Get('performance')
-  async performance(@CurrentUser() user: AuthUser) {
-    return this.reports.performance(await this.scopeUserId(user));
+  async performance(@CurrentUser() user: AuthUser, @Query('office') office?: string) {
+    return this.reports.performance(await this.scopeUserId(user), this.officeId(office));
   }
 
   /** The Reports & Analysis page — team-wide by definition.
-   *  Either ?days=N (preset) or ?from=YYYY-MM-DD&to=YYYY-MM-DD (custom range). */
+   *  Either ?days=N (preset) or ?from=YYYY-MM-DD&to=YYYY-MM-DD (custom range).
+   *  ?office=<id> narrows to one office; omitted → all offices combined. */
   @RequirePermission('view_reports_team')
   @Get('analysis')
   analysis(
     @Query('days') days?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('office') office?: string,
   ) {
     let fromDate: Date | undefined;
     let toDate: Date | undefined;
@@ -48,7 +56,12 @@ export class ReportsController {
         throw new BadRequestException('Invalid date range');
       }
     }
-    return this.reports.analysis(days ? Math.min(365, Math.max(1, Number(days))) : 30, fromDate, toDate);
+    return this.reports.analysis(
+      days ? Math.min(365, Math.max(1, Number(days))) : 30,
+      fromDate,
+      toDate,
+      this.officeId(office),
+    );
   }
 
   @RequirePermission('export_data')

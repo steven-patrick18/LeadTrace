@@ -44,6 +44,21 @@ model Permission {
   @@map("permissions")
 }
 
+// An office/branch. Users belong to one; leads are stamped with the creator's
+// office; routing dropdowns and the Manager bucket are scoped by it; reports
+// can filter per office or view all offices combined.
+model Office {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users User[]
+  leads Lead[]
+
+  @@map("offices")
+}
+
 model User {
   id           Int      @id @default(autoincrement())
   name         String
@@ -54,12 +69,14 @@ model User {
   batchId      String?  @unique @map("batch_id")
   roleId       Int      @map("role_id")
   reportsToId  Int?     @map("reports_to")
+  officeId     Int?     @map("office_id")
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  role      Role   @relation(fields: [roleId], references: [id])
-  reportsTo User?  @relation("UserReports", fields: [reportsToId], references: [id])
-  reports   User[] @relation("UserReports")
+  role      Role    @relation(fields: [roleId], references: [id])
+  reportsTo User?   @relation("UserReports", fields: [reportsToId], references: [id])
+  reports   User[]  @relation("UserReports")
+  office    Office? @relation(fields: [officeId], references: [id])
 
   createdLeads   Lead[]           @relation("LeadCreator")
   assignedLeads  Lead[]           @relation("LeadAssignee")
@@ -121,12 +138,14 @@ model Lead {
   sourceProvider  String?    @map("source_provider")
   rawProviderData Json?      @map("raw_provider_data")
   workStatusId    Int?       @map("work_status_id") // tier-specific disposition; reset on routing
+  officeId        Int?       @map("office_id") // stamped from the creator's office
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
 
   createdBy      User             @relation("LeadCreator", fields: [createdById], references: [id])
   assignedTo     User?            @relation("LeadAssignee", fields: [assignedToId], references: [id])
   workStatus     TierStatus?      @relation(fields: [workStatusId], references: [id])
+  office         Office?          @relation(fields: [officeId], references: [id])
   phones         LeadPhone[]
   queueEntries   RoutingQueue[]
   routingHistory RoutingHistory[]
@@ -139,6 +158,7 @@ model Lead {
   @@index([assignedToId, status])
   @@index([currentTier, status])
   @@index([primaryPhone])
+  @@index([officeId])
   @@map("leads")
 }
 
@@ -159,6 +179,7 @@ enum TransferPoint {
   T1_TO_SS
   T2_TO_CLOSER
   T3_SEND_BACK
+  T1_DIRECT // agent-decided direct handoff at T1 (to an Agent or Sr Agent)
 
   @@map("transfer_point")
 }

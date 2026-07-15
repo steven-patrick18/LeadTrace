@@ -36,7 +36,7 @@ export default function App() {
         </div>
         {can('search_providers') && <Nav to="/search" label="Search" />}
         <Nav to="/leads" label="My Leads" />
-        {can('route_leads') && <Nav to="/routing" label="Routing Queue" />}
+        {can('route_leads') && <Nav to="/routing" label="Manager Bucket" />}
         {can('view_reports_own') && <Nav to="/dashboard" label="Dashboard" />}
         {can('view_reports_team') && <Nav to="/reports" label="Reports" />}
         {can('view_api_costs') && <Nav to="/api-costs" label="API Costs" />}

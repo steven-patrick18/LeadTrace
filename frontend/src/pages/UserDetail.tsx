@@ -8,6 +8,7 @@ interface Overview {
     id: number; name: string; email: string; isActive: boolean; batchId: string | null; createdAt: string;
     role: { id: number; roleCode: string; displayName: string };
     reportsTo: { id: number; name: string } | null;
+    office: { id: number; name: string } | null;
   };
   stats: {
     createdCount: number; activeAssigned: number; callsLogged: number; transfersRaised: number;
@@ -19,6 +20,7 @@ interface Overview {
 }
 
 interface Role { id: number; roleCode: string; displayName: string }
+interface OfficeOpt { id: number; name: string; isActive: boolean }
 
 /** Full user page: profile edit (incl. Batch ID assignment), performance,
  *  assigned leads, and activity. Opened by clicking a user anywhere. */
@@ -137,10 +139,17 @@ function EditProfile({
   const [roleId, setRoleId] = useState(String(u.role.id));
   const [batchId, setBatchId] = useState(u.batchId ?? '');
   const [password, setPassword] = useState('');
+  const [officeId, setOfficeId] = useState(u.office ? String(u.office.id) : '');
+  const [offices, setOffices] = useState<OfficeOpt[]>([]);
+
+  useEffect(() => {
+    get<OfficeOpt[]>('/offices').then(setOffices).catch(() => setOffices([]));
+  }, []);
 
   const dirty =
     name !== u.name || email !== u.email || roleId !== String(u.role.id) ||
-    batchId !== (u.batchId ?? '') || password.length > 0;
+    batchId !== (u.batchId ?? '') || password.length > 0 ||
+    officeId !== (u.office ? String(u.office.id) : '');
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -151,6 +160,9 @@ function EditProfile({
         ...(roleId !== String(u.role.id) ? { roleId: Number(roleId) } : {}),
         ...(batchId && batchId !== u.batchId ? { batchId } : {}),
         ...(password ? { password } : {}),
+        ...(officeId !== (u.office ? String(u.office.id) : '')
+          ? { officeId: officeId ? Number(officeId) : null }
+          : {}),
       });
       setPassword('');
       onSaved('Profile saved.');
@@ -186,7 +198,8 @@ function EditProfile({
           {u.email}<br />
           Role: {u.role.displayName}<br />
           Batch ID: <code>{u.batchId ?? '—'}</code><br />
-          Reports to: {u.reportsTo?.name ?? '—'}
+          Reports to: {u.reportsTo?.name ?? '—'}<br />
+          Office: {u.office?.name ?? '— (all offices)'}
         </p>
         <p className="muted" style={{ fontSize: '0.78rem' }}>Editing requires full manage_users (admin).</p>
       </div>
@@ -206,6 +219,15 @@ function EditProfile({
             <label>Role</label>
             <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
               {roles.map((r) => <option key={r.id} value={r.id}>{r.displayName}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>Office (scopes transfers, bucket &amp; reports)</label>
+            <select value={officeId} onChange={(e) => setOfficeId(e.target.value)}>
+              <option value="">— No office (floats everywhere)</option>
+              {offices.map((o) => (
+                <option key={o.id} value={o.id}>{o.name}{o.isActive ? '' : ' (inactive)'}</option>
+              ))}
             </select>
           </div>
           <div className="field">

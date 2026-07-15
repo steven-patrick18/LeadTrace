@@ -47,7 +47,9 @@ const CASES: Array<[string, string, string, unknown, string, string]> = [
   ['edit_lead', 'PATCH', '/leads/999999', { city: 'Z' }, '__SKIP_WITHOUT__', 'MANAGER'],
   ['log_activity', 'POST', '/leads/999999/activities', { type: 'NOTE', detail: 'x' }, '__SKIP_WITHOUT__', 'MANAGER'],
   ['request_transfer', 'POST', '/routing/leads/999999/request-transfer', {}, 'CLOSER', 'AGENT'],
-  ['route_leads', 'GET', '/routing/queue', undefined, 'MANAGER', 'ADMIN'],
+  // Managers own the common T2→T3 bucket (route_leads granted by default);
+  // Closers stay denied.
+  ['route_leads', 'GET', '/routing/queue', undefined, 'CLOSER', 'MANAGER'],
   ['close_deal', 'POST', '/routing/leads/999999/close', { outcome: 'CLOSED_WON' }, 'AGENT', 'CLOSER'],
   ['send_back', 'POST', '/routing/leads/999999/send-back', { reason: 'test' }, 'SR_AGENT', 'CLOSER'],
   ['view_reports_team', 'GET', '/reports/performance', undefined, '__TEAM_SCOPE__', 'MANAGER'],

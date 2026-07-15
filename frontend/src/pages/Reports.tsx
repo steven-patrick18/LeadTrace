@@ -25,6 +25,12 @@ interface Analysis {
   activityByDay: Array<{ day: string; calls: number; other: number }>;
 }
 
+interface OfficeRow {
+  id: number;
+  name: string;
+  isActive: boolean;
+}
+
 export function Reports() {
   const { can } = useAuth();
   const nav = useNavigate();
@@ -32,16 +38,22 @@ export function Reports() {
   const [custom, setCustom] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [office, setOffice] = useState(''); // '' = all offices combined
+  const [offices, setOffices] = useState<OfficeRow[]>([]);
   const [data, setData] = useState<Analysis | null>(null);
+
+  useEffect(() => {
+    get<OfficeRow[]>('/offices').then(setOffices).catch(() => setOffices([]));
+  }, []);
 
   const load = () => {
     const query = custom && from && to ? `from=${from}&to=${to}` : `days=${days}`;
-    get<Analysis>(`/reports/analysis?${query}`).then(setData);
+    get<Analysis>(`/reports/analysis?${query}${office ? `&office=${office}` : ''}`).then(setData);
   };
   useEffect(() => {
     if (!custom) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days, custom]);
+  }, [days, custom, office]);
 
   if (!data) return <div className="muted">Loading…</div>;
 
@@ -54,6 +66,16 @@ export function Reports() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
         <h1 style={{ margin: 0 }}>Reports &amp; Analysis</h1>
         <div className="row">
+          {offices.length > 0 && (
+            <select value={office} onChange={(e) => setOffice(e.target.value)} title="Office-wise or combined view">
+              <option value="">🏢 All offices (combined)</option>
+              {offices.map((o) => (
+                <option key={o.id} value={o.id}>
+                  🏢 {o.name}{o.isActive ? '' : ' (inactive)'}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={custom ? 'custom' : days}
             onChange={(e) => {

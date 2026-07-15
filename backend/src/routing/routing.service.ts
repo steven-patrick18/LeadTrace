@@ -20,12 +20,14 @@ import { PermissionsService } from '../permissions/permissions.service';
 
 const TARGET_ROLE_CODES: Record<TransferPoint, string[]> = {
   T1_TO_SS: ['SR_AGENT'],
+  T1_DIRECT: ['AGENT', 'SR_AGENT'], // agent-decided; never queued
   T2_TO_CLOSER: ['CLOSER'],
   T3_SEND_BACK: ['AGENT', 'SR_AGENT'],
 };
 
 const TARGET_TIER: Record<TransferPoint, Record<string, LeadTier>> = {
   T1_TO_SS: { SR_AGENT: 'SR_AGENT' },
+  T1_DIRECT: { AGENT: 'AGENT', SR_AGENT: 'SR_AGENT' },
   T2_TO_CLOSER: { CLOSER: 'CLOSER' },
   T3_SEND_BACK: { AGENT: 'AGENT', SR_AGENT: 'SR_AGENT' },
 };
@@ -39,7 +41,94 @@ export class RoutingService {
     private readonly permissions: PermissionsService,
   ) {}
 
-  /** Agent/SS pushes a lead up (spec §5 steps 2, 4). */
+  /**
+   * T1 — the Agent decides. Direct handoff to a chosen Agent or Sr Agent of the
+   * lead's office; no queue, effective immediately. Lives in this file because
+   * it mutates assigned_to/current_tier (spec §4.1 sanctioned path).
+   */
+  async directTransfer(user: AuthUser, leadId: number, toUserId: number, note?: string, ip?: string) {
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
+    if (!lead) throw new NotFoundException('Lead not found');
+    if (lead.assignedToId !== user.id) {
+      throw new ForbiddenException('Only the assigned user can transfer this lead');
+    }
+    if (lead.currentTier !== 'AGENT') {
+      throw new BadRequestException('Direct transfer is the T1 (Agent) step — from Sr Agent the lead goes to the Manager bucket');
+    }
+    if (!['NEW', 'IN_PROGRESS', 'QUALIFIED'].includes(lead.status)) {
+      throw new BadRequestException(`Cannot transfer while lead is ${lead.status}`);
+    }
+    if (toUserId === user.id) throw new BadRequestException('Pick a colleague to transfer to');
+
+    const target = await this.prisma.user.findUnique({ where: { id: toUserId }, include: { role: true } });
+    if (!target || !target.isActive) throw new BadRequestException('Recipient not found or inactive');
+    if (!TARGET_ROLE_CODES.T1_DIRECT.includes(target.role.roleCode)) {
+      throw new BadRequestException('T1 transfers go to an Agent or Sr Agent');
+    }
+    if (lead.officeId && target.officeId && target.officeId !== lead.officeId) {
+      throw new BadRequestException(`${target.name} is in a different office — transfers stay office-wise`);
+    }
+    const targetTier = TARGET_TIER.T1_DIRECT[target.role.roleCode];
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Sanctioned mutation of assigned_to / current_tier (spec §4.1).
+      const updated = await tx.lead.update({
+        where: { id: leadId },
+        data: { assignedToId: target.id, currentTier: targetTier, status: 'IN_PROGRESS', workStatusId: null },
+      });
+      await tx.routingHistory.create({
+        data: { leadId, transferPoint: 'T1_DIRECT', fromUserId: user.id, toUserId: target.id, routedById: user.id },
+      });
+      await tx.activity.create({
+        data: {
+          leadId,
+          userId: user.id,
+          type: 'STATUS_CHANGE',
+          detail: `Transferred directly to ${target.name} (${target.role.roleCode === 'SR_AGENT' ? 'Sr Agent' : 'Agent'})${note ? `: ${note}` : ''}`,
+        },
+      });
+      await this.audit.log({
+        userId: user.id, action: 'LEAD_ROUTED', ip,
+        detail: { leadId, transferPoint: 'T1_DIRECT', toUserId: target.id }, tx,
+      });
+      return updated;
+    });
+
+    await this.notifications.notify([target.id], {
+      type: 'LEAD_ROUTED',
+      title: `${user.name} transferred lead #${leadId} to you${note ? `: ${note.slice(0, 80)}` : ''}`,
+      leadId,
+    });
+    await this.notifications.notifyLeadWatchers(leadId, user.id, {
+      type: 'LEAD_ROUTED',
+      title: `➡️ ${user.name} transferred lead #${leadId} to ${target.name}`,
+    });
+    return result;
+  }
+
+  /** Dropdown for the Agent's direct transfer: Agents + Sr Agents, office-wise. */
+  async directRecipients(user: AuthUser, leadId: number) {
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { officeId: true, assignedToId: true } });
+    if (!lead) throw new NotFoundException('Lead not found');
+    return this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        id: { not: user.id },
+        role: { roleCode: { in: TARGET_ROLE_CODES.T1_DIRECT } },
+        // Office-wise: same office as the lead (office-less users float everywhere)
+        ...(lead.officeId ? { OR: [{ officeId: lead.officeId }, { officeId: null }] } : {}),
+      },
+      select: {
+        id: true, name: true,
+        role: { select: { roleCode: true, displayName: true } },
+        office: { select: { id: true, name: true } },
+        _count: { select: { assignedLeads: { where: { status: { in: ['NEW', 'IN_PROGRESS', 'PENDING_ROUTING'] } } } } },
+      },
+      orderBy: [{ role: { tier: 'desc' } }, { name: 'asc' }],
+    });
+  }
+
+  /** T2 → Manager bucket (spec §5 step 4): Sr Agent pushes the lead up. */
   async requestTransfer(user: AuthUser, leadId: number, note?: string, ip?: string) {
     const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
     if (!lead) throw new NotFoundException('Lead not found');
@@ -52,7 +141,10 @@ export class RoutingService {
     if (lead.currentTier === 'CLOSER') {
       throw new BadRequestException('Closer tier is final — use Close Won / Close Lost / Send Back');
     }
-    const transferPoint: TransferPoint = lead.currentTier === 'AGENT' ? 'T1_TO_SS' : 'T2_TO_CLOSER';
+    if (lead.currentTier === 'AGENT') {
+      throw new BadRequestException('T1 transfers are direct — pick an Agent or Sr Agent in the Transfer dropdown');
+    }
+    const transferPoint: TransferPoint = 'T2_TO_CLOSER';
 
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.lead.update({ where: { id: leadId }, data: { status: 'PENDING_ROUTING' } });
@@ -77,7 +169,7 @@ export class RoutingService {
       return queueRow;
     });
 
-    await this.notifyRouters(leadId, `Lead #${leadId} is waiting in the routing queue (${transferPoint})`);
+    await this.notifyRouters(leadId, `Lead #${leadId} is waiting in the Manager bucket (${transferPoint})`);
     return result;
   }
 
@@ -147,16 +239,25 @@ export class RoutingService {
     return result;
   }
 
-  /** The Admin Routing Queue (spec Phase 3): PENDING rows grouped by transfer point, wait time per row. */
-  async queue() {
+  /**
+   * The routing queue — the common MANAGER BUCKET. All managers share it;
+   * a manager with an office sees their office's rows (plus office-less
+   * leads); admins and office-less managers see everything.
+   */
+  async queue(user: AuthUser) {
+    const me = await this.prisma.user.findUnique({ where: { id: user.id }, select: { officeId: true } });
     const rows = await this.prisma.routingQueue.findMany({
-      where: { status: 'PENDING' },
+      where: {
+        status: 'PENDING',
+        ...(me?.officeId ? { lead: { OR: [{ officeId: me.officeId }, { officeId: null }] } } : {}),
+      },
       orderBy: { createdAt: 'asc' },
       include: {
         lead: {
           select: {
             id: true, firstName: true, lastName: true, primaryPhone: true,
             city: true, state: true, currentTier: true, status: true,
+            office: { select: { id: true, name: true } },
           },
         },
         raisedBy: { select: { id: true, name: true, role: { select: { displayName: true } } } },
@@ -171,13 +272,19 @@ export class RoutingService {
     };
   }
 
-  /** Eligible recipients for a transfer point (for the routing UI dropdown). */
-  async eligibleRecipients(transferPoint: TransferPoint) {
+  /** Eligible recipients for a transfer point (routing UI dropdown), office-wise for office-bound routers. */
+  async eligibleRecipients(user: AuthUser, transferPoint: TransferPoint) {
+    const me = await this.prisma.user.findUnique({ where: { id: user.id }, select: { officeId: true } });
     return this.prisma.user.findMany({
-      where: { isActive: true, role: { roleCode: { in: TARGET_ROLE_CODES[transferPoint] } } },
+      where: {
+        isActive: true,
+        role: { roleCode: { in: TARGET_ROLE_CODES[transferPoint] } },
+        ...(me?.officeId ? { OR: [{ officeId: me.officeId }, { officeId: null }] } : {}),
+      },
       select: {
         id: true, name: true,
         role: { select: { roleCode: true, displayName: true } },
+        office: { select: { id: true, name: true } },
         _count: { select: { assignedLeads: { where: { status: { in: ['NEW', 'IN_PROGRESS', 'PENDING_ROUTING'] } } } } },
       },
       orderBy: { name: 'asc' },
@@ -225,6 +332,17 @@ export class RoutingService {
       const row = await tx.routingQueue.findUnique({ where: { id: queueId }, include: { lead: true } });
       if (!row) throw new NotFoundException(`Queue row ${queueId} not found`);
       if (row.status !== 'PENDING') throw new BadRequestException(`Queue row ${queueId} was already routed`);
+
+      // Office-wise: an office-bound manager routes only their office's leads,
+      // and the recipient must belong to the lead's office (or be office-less).
+      const router = await tx.user.findUnique({ where: { id: user.id }, select: { officeId: true } });
+      if (router?.officeId && row.lead.officeId && row.lead.officeId !== router.officeId) {
+        throw new ForbiddenException(`Lead #${row.leadId} belongs to another office's bucket`);
+      }
+      const targetOffice = await tx.user.findUnique({ where: { id: target.id }, select: { officeId: true } });
+      if (row.lead.officeId && targetOffice?.officeId && targetOffice.officeId !== row.lead.officeId) {
+        throw new BadRequestException(`${target.name} is in a different office — routing stays office-wise`);
+      }
 
       const targetTier = TARGET_TIER[row.transferPoint][target.role.roleCode];
       if (!targetTier) {
@@ -296,11 +414,17 @@ export class RoutingService {
     return result;
   }
 
+  /** Notify the bucket owners: managers of the lead's office + office-less routers (admins). */
   private async notifyRouters(leadId: number, title: string) {
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { officeId: true } });
     const routers = await this.permissions.usersWithPermission('route_leads');
-    await this.notifications.notify(
-      routers.map((r) => r.id),
-      { type: 'QUEUE_PENDING', title, leadId },
-    );
+    const routerUsers = await this.prisma.user.findMany({
+      where: { id: { in: routers.map((r) => r.id) } },
+      select: { id: true, officeId: true },
+    });
+    const targets = routerUsers
+      .filter((u) => !u.officeId || !lead?.officeId || u.officeId === lead.officeId)
+      .map((u) => u.id);
+    await this.notifications.notify(targets, { type: 'QUEUE_PENDING', title, leadId });
   }
 }

@@ -145,27 +145,19 @@ export function EnrichmentPanel({ leadId, onCallableChange }: { leadId: number; 
             </div>
           ) : null}
 
-          {/* Score row */}
+          {/* Compact score strip — small, top-right; details are what matter */}
           {i && (
-            <div className="grid cols4" style={{ margin: '12px 0' }}>
-              <div className="stat">
-                <div className="num" style={{ color: scoreColor(i.leadScore), cursor: 'pointer' }} onClick={() => setShowBreakdown(!showBreakdown)} title="Click for score breakdown">
-                  {i.leadScore}
-                </div>
-                <div className="lbl">Lead score ▾</div>
-              </div>
-              <div className="stat">
-                <div className="num">{Math.round(i.conversionProbability * 100)}%</div>
-                <div className="lbl">Conversion probability ({i.conversionProbabilityMethod})</div>
-              </div>
-              <div className="stat">
-                <div className="num">{i.dataCompletenessPct}%</div>
-                <div className="lbl">Data completeness</div>
-              </div>
-              <div className="stat">
-                <div className="num" style={{ fontSize: '0.95rem', lineHeight: 1.4, paddingTop: 8 }}>{g?.localTimeNow ?? '—'}</div>
-                <div className="lbl">Lead's local time</div>
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 14, flexWrap: 'wrap', margin: '8px 0 4px', fontSize: '0.8rem', color: 'var(--muted)' }}>
+              <span
+                style={{ cursor: 'pointer' }}
+                onClick={() => setShowBreakdown(!showBreakdown)}
+                title="Click for score breakdown"
+              >
+                Score <strong style={{ color: scoreColor(i.leadScore), fontSize: '0.95rem' }}>{i.leadScore}</strong> ▾
+              </span>
+              <span>Conv <strong style={{ color: 'var(--text)' }}>{Math.round(i.conversionProbability * 100)}%</strong></span>
+              <span>Complete <strong style={{ color: 'var(--text)' }}>{i.dataCompletenessPct}%</strong></span>
+              {g?.localTimeNow && <span>🕑 <strong style={{ color: 'var(--text)' }}>{g.localTimeNow}</strong></span>}
             </div>
           )}
 

@@ -191,27 +191,37 @@ export class SearchBugProvider implements PersonDataProvider, EnrichmentDataProv
     return out;
   }
 
-  /** emails: null | {email:[...]} ; emailRecords may also carry addresses. */
+  /**
+   * Emails from BOTH containers. Verified live shape:
+   *   emails.email[]                → string or {emailAddress}
+   *   emailRecords.emailRecord[]    → {email: {emailAddress}}
+   */
   private emailsOf(person: any): string[] {
-    const raw = [...this.list(person?.emails, 'email'), ...this.list(person?.emailRecords, 'emailRecord')];
+    const fromEmails = this.list(person?.emails, 'email').map((e: any) =>
+      typeof e === 'string' ? e : e?.emailAddress ?? e?.email,
+    );
+    const fromRecords = this.list(person?.emailRecords, 'emailRecord').map(
+      (r: any) => r?.email?.emailAddress ?? r?.emailAddress ?? (typeof r?.email === 'string' ? r.email : null),
+    );
     return [
       ...new Set(
-        raw
-          .map((e: any) => (typeof e === 'string' ? e : e?.email ?? e?.emailAddress ?? e?.address))
+        [...fromEmails, ...fromRecords]
           .filter((e: any): e is string => typeof e === 'string' && e.includes('@'))
           .map((e) => e.toLowerCase()),
       ),
     ];
   }
 
-  /** relationships → relatives (defensive; SearchBug nests names inside). */
-  private relativesOf(person: any): Array<{ name: string }> {
-    const rels = this.list(person?.relationships, 'relationship');
-    const out: Array<{ name: string }> = [];
-    for (const r of rels) {
-      const nm = this.nameOf(r);
-      const full = nm.full || `${r?.firstName ?? ''} ${r?.lastName ?? ''}`.trim();
-      if (full) out.push({ name: full });
+  /**
+   * Relatives from relationships.relationship[]. Verified live shape:
+   *   { relationshipType, name: {firstName, lastName, ...}, currentAge }
+   */
+  private relativesOf(person: any): Array<{ name: string; relation?: string }> {
+    const out: Array<{ name: string; relation?: string }> = [];
+    for (const r of this.list(person?.relationships, 'relationship')) {
+      const n = r?.name ?? r;
+      const full = `${n?.firstName ?? ''} ${[n?.lastName, n?.nameSuffix].filter(Boolean).join(' ')}`.trim();
+      if (full) out.push({ name: full, relation: r?.relationshipType ?? undefined });
     }
     return out;
   }
